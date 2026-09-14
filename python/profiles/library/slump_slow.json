@@ -1,0 +1,13 @@
+{
+  "id": "slump_slow",
+  "name": "Slump \u2014 Slow",
+  "description": "Glass bends over or into a mold under heat and gravity. Degree of slump varies by mold \u2014 expect to tweak temperature/hold per mold. For larger/thicker pieces. Gentlest ramp; use when unsure.",
+  "kind": "glassfire",
+  "source": "library",
+  "glassfire": {
+    "speed": "SLo",
+    "process": "SLP",
+    "temp_override_f": null,
+    "hold_override_minutes": null
+  }
+}

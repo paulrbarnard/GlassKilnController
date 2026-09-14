@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Arduino build artifacts
+sketch/build/
+*.bin
+*.elf
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/
+
+# Local-only calibration overrides (keep the checked-in defaults as the
+# template; a real build's actual measured values may be worth gitignoring
+# per-machine — uncomment if you'd rather not commit your specific rig's
+# numbers):
+# python/config/servo_calibration.yaml
+# python/config/camera_calibration.yaml

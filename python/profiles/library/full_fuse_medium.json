@@ -1,0 +1,13 @@
+{
+  "id": "full_fuse_medium",
+  "name": "Full Fuse \u2014 Medium",
+  "description": "Glass melts completely together to ~1/4\" (6.4mm) thick with rounded edges and an undistorted shape. For moderate-size pieces.",
+  "kind": "glassfire",
+  "source": "library",
+  "glassfire": {
+    "speed": "MEd",
+    "process": "FULL",
+    "temp_override_f": null,
+    "hold_override_minutes": null
+  }
+}

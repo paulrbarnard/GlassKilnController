@@ -1,0 +1,30 @@
+{
+  "id": "casting_factory",
+  "name": "Casting (factory, PRO slot 5)",
+  "description": "Factory-programmed Ramp & Hold casting schedule, stored in PRO mode slot 5. Restored automatically by a controller factory reset; overwritten if you store a different program in slot 5.",
+  "kind": "ramp_hold",
+  "source": "library",
+  "segments": [
+    {
+      "rate_f_per_hr": 150,
+      "target_temp_f": 250,
+      "hold_minutes": 15
+    },
+    {
+      "rate_f_per_hr": 250,
+      "target_temp_f": 1500,
+      "hold_minutes": 5
+    },
+    {
+      "rate_f_per_hr": 1000,
+      "target_temp_f": 950,
+      "hold_minutes": 150
+    },
+    {
+      "rate_f_per_hr": 30,
+      "target_temp_f": 750,
+      "hold_minutes": 20
+    }
+  ],
+  "pro_slot": 5
+}

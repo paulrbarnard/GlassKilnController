@@ -1,0 +1,13 @@
+{
+  "id": "full_fuse_slow",
+  "name": "Full Fuse \u2014 Slow",
+  "description": "Glass melts completely together to ~1/4\" (6.4mm) thick with rounded edges and an undistorted shape. For larger/thicker pieces. Gentlest ramp; use when unsure.",
+  "kind": "glassfire",
+  "source": "library",
+  "glassfire": {
+    "speed": "SLo",
+    "process": "FULL",
+    "temp_override_f": null,
+    "hold_override_minutes": null
+  }
+}

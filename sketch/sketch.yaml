@@ -1,0 +1,9 @@
+# Arduino build config for the MCU side of the Uno Q.
+#
+# NOTE: fqbn is a placeholder — set it to the actual Uno Q MCU core FQBN
+# once confirmed in Arduino App Lab / `arduino-cli board list`.
+fqbn: arduino:zephyr:uno_q  # TODO: confirm exact FQBN for the Uno Q STM32 core
+
+libraries:
+  - name: Arduino_RouterBridge
+  - name: Servo

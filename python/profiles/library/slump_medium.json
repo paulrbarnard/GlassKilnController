@@ -1,0 +1,13 @@
+{
+  "id": "slump_medium",
+  "name": "Slump \u2014 Medium",
+  "description": "Glass bends over or into a mold under heat and gravity. Degree of slump varies by mold \u2014 expect to tweak temperature/hold per mold. For moderate-size pieces.",
+  "kind": "glassfire",
+  "source": "library",
+  "glassfire": {
+    "speed": "MEd",
+    "process": "SLP",
+    "temp_override_f": null,
+    "hold_override_minutes": null
+  }
+}

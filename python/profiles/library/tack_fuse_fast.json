@@ -1,0 +1,13 @@
+{
+  "id": "tack_fuse_fast",
+  "name": "Tack Fuse \u2014 Fast",
+  "description": "A slightly more aggressive \"fuse to stick\": pieces bond together without fully rounding the edges. For small pieces only (see size guide) \u2014 thin, small diameter.",
+  "kind": "glassfire",
+  "source": "library",
+  "glassfire": {
+    "speed": "FASt",
+    "process": "tAC",
+    "temp_override_f": null,
+    "hold_override_minutes": null
+  }
+}

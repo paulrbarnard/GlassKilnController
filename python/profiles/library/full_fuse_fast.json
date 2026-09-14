@@ -1,0 +1,13 @@
+{
+  "id": "full_fuse_fast",
+  "name": "Full Fuse \u2014 Fast",
+  "description": "Glass melts completely together to ~1/4\" (6.4mm) thick with rounded edges and an undistorted shape. For small pieces only (see size guide) \u2014 thin, small diameter.",
+  "kind": "glassfire",
+  "source": "library",
+  "glassfire": {
+    "speed": "FASt",
+    "process": "FULL",
+    "temp_override_f": null,
+    "hold_override_minutes": null
+  }
+}

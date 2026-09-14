@@ -1,0 +1,20 @@
+# Arduino App Lab manifest — pairs the sketch (MCU) and python (MPU) halves
+# of this app so App Lab / arduino-cli can build and run them together.
+#
+# NOTE: verify keys/values against the App Lab manifest schema for your
+# installed App Lab version before first deploy — this was scaffolded from
+# publicly documented UNO Q project conventions, not copied from a working
+# example on this specific hardware.
+
+name: glass-kiln-controller
+description: >
+  Touchscreen + camera + servo overlay that drives a Skutt GlassMaster LT
+  kiln controller through its factory button/display UI.
+version: 0.1.0
+
+python:
+  entry_point: python/main.py
+  requirements: python/requirements.txt
+
+sketch:
+  path: sketch/sketch.ino

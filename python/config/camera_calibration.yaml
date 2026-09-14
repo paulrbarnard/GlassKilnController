@@ -1,0 +1,18 @@
+# Camera ROI + per-digit boxes for reading the GM LT 7-segment display.
+# See docs/hardware.md "Camera" calibration procedure and
+# kiln/vision.py RealVision._load_calibration. Placeholder/example shape —
+# not measured against real hardware yet.
+
+roi:
+  x: 0
+  y: 0
+  w: 320
+  h: 120
+
+digit_boxes: []
+# Example once measured:
+# digit_boxes:
+#   - {x: 10, y: 10, w: 40, h: 80}
+#   - {x: 60, y: 10, w: 40, h: 80}
+#   - {x: 110, y: 10, w: 40, h: 80}
+#   - {x: 160, y: 10, w: 40, h: 80}

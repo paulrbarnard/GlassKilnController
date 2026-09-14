@@ -1,0 +1,8 @@
+# Linux/MPU side dependencies for the Uno Q App Lab app.
+#
+# arduino.app_utils ships with the App Lab runtime on-device — not pip
+# installable, not listed here.
+
+PySide6>=6.6
+opencv-python>=4.9
+PyYAML>=6.0

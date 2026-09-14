@@ -1,0 +1,13 @@
+{
+  "id": "tack_fuse_medium",
+  "name": "Tack Fuse \u2014 Medium",
+  "description": "A slightly more aggressive \"fuse to stick\": pieces bond together without fully rounding the edges. For moderate-size pieces.",
+  "kind": "glassfire",
+  "source": "library",
+  "glassfire": {
+    "speed": "MEd",
+    "process": "tAC",
+    "temp_override_f": null,
+    "hold_override_minutes": null
+  }
+}

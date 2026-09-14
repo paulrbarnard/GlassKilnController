@@ -1,0 +1,13 @@
+{
+  "id": "tack_fuse_slow",
+  "name": "Tack Fuse \u2014 Slow",
+  "description": "A slightly more aggressive \"fuse to stick\": pieces bond together without fully rounding the edges. For larger/thicker pieces. Gentlest ramp; use when unsure.",
+  "kind": "glassfire",
+  "source": "library",
+  "glassfire": {
+    "speed": "SLo",
+    "process": "tAC",
+    "temp_override_f": null,
+    "hold_override_minutes": null
+  }
+}
