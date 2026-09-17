@@ -7,9 +7,9 @@
 // has no idea what a "profile" or a "GlassFire program" is, and that's by
 // design (see docs/architecture.md).
 //
-// Bridge API used here (arduino-libraries/Arduino_RouterBridge, confirmed
-// against public Uno Q examples/docs — verify against your installed
-// library version):
+// Bridge API used here (arduino-libraries/Arduino_RouterBridge) and the
+// servo library choice below are both CONFIRMED by compiling and running on
+// real hardware (an Uno Q named "Steffi"), not just documentation:
 //   Bridge.begin()
 //   Bridge.provide_safe(name, fn)   // fn runs on the dedicated hardware
 //                                    // update thread; use for anything
@@ -17,9 +17,18 @@
 //
 // Python calls these by name via arduino.app_utils Bridge.call(...).result()
 // — see python/kiln/bridge.py.
-
+//
+// IMPORTANT: this board's Arduino-level PWM pins (D2-D13, D20/D21) are
+// hardware-fixed at 500Hz in its devicetree (see docs/hardware.md) — a
+// standard hobby servo needs 50Hz, so the classic `Servo` library does not
+// exist for this board's `arduino:zephyr` core at all (confirmed: it fails
+// to compile, "Servo.h: No such file or directory", because no version of
+// it is offered as a candidate for this FQBN). RoboServo instead bit-bangs
+// the signal off a *separate*, purpose-provisioned hardware counter timer
+// (devicetree node `counter_servo`) rather than the PWM peripheral, which
+// is exactly why it works here. Same attach()/write() API as classic Servo.
 #include <Arduino_RouterBridge.h>
-#include <Servo.h>
+#include <RoboServo.h>
 
 // ---- Keys ------------------------------------------------------------
 // Must match kiln.protocol.Key values (ENTER=0, UP=1, DOWN=2) in
@@ -44,7 +53,7 @@ int rest_angle[KEY_COUNT] = {90, 90, 90};
 // servo against the panel.
 int press_angle[KEY_COUNT] = {60, 60, 60};
 
-Servo servos[KEY_COUNT];
+RoboServo servos[KEY_COUNT];
 
 static bool key_is_valid(int which) {
   return which >= 0 && which < KEY_COUNT;

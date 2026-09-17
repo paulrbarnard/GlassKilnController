@@ -1,9 +1,20 @@
-# Arduino build config for the MCU side of the Uno Q.
+# Arduino CLI sketch project file. Confirmed by compiling on real hardware.
 #
-# NOTE: fqbn is a placeholder — set it to the actual Uno Q MCU core FQBN
-# once confirmed in Arduino App Lab / `arduino-cli board list`.
-fqbn: arduino:zephyr:uno_q  # TODO: confirm exact FQBN for the Uno Q STM32 core
-
-libraries:
-  - name: Arduino_RouterBridge
-  - name: Servo
+# Arduino_RouterBridge and its transitive deps (Arduino_RPClite, MsgPack,
+# DebugLog, ArxTypeTraits, ArxContainer) auto-resolve from this sketch's
+# #include directives with no explicit entry needed — they're apparently
+# bundled/pre-associated with the arduino:zephyr board package.
+#
+# RoboServo does NOT auto-resolve the same way (confirmed: compiling
+# without it listed here fails to find RoboServo.h/Servo.h at all, even
+# with an explicitly installed library and an explicit --library flag —
+# profile-based builds only pull in what's declared here). Any other
+# library this sketch gains in the future will likely need the same
+# explicit declaration.
+profiles:
+  default:
+    platforms:
+      - platform: arduino:zephyr
+    libraries:
+      - RoboServo (1.2.0)
+default_profile: default

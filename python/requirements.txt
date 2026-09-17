@@ -1,8 +1,13 @@
 # Linux/MPU side dependencies for the Uno Q App Lab app.
 #
-# arduino.app_utils ships with the App Lab runtime on-device — not pip
-# installable, not listed here.
+# arduino.app_utils and arduino.app_bricks.web_ui ship with the App Lab
+# runtime on-device (declared via app.yaml's `bricks:` list, not here) —
+# not pip installable, not listed here.
 
-PySide6>=6.6
-opencv-python>=4.9
+# -headless, not opencv-python: confirmed on real hardware that the
+# App Lab container is missing libGL.so.1 (same stripped-graphics-stack
+# situation that ruled out PySide6, see docs/architecture.md) — the
+# regular opencv-python wheel needs it for GUI/imshow support we never use
+# anyway; -headless drops that dependency entirely and imports cleanly.
+opencv-python-headless>=4.9
 PyYAML>=6.0

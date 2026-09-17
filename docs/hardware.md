@@ -29,6 +29,22 @@ a micro servo (e.g. SG90-class) that:
   without over-driving it (these are the kiln's real controls — don't stall
   the servo against the panel).
 
+**Driven directly off the Uno Q's MCU pins — no external servo driver
+board needed.** This wasn't obvious going in: this board's Arduino-level
+PWM pins are hardware-fixed at 500Hz in its devicetree (checked directly:
+`arduino_uno_q_stm32u585xx.overlay`, every `pwms` entry is `PWM_HZ(500)`),
+which is why the classic `Servo` library doesn't even compile for it — a
+hobby servo needs 50Hz and that period isn't reachable through
+`analogWrite()` here. The board's devicetree does provision a *separate*
+hardware counter timer for exactly this purpose (`counter_servo`, aka
+`TIM2`), and the `RoboServo` library (confirmed: compiles and links against
+`arduino:zephyr:unoq`, `library.properties` explicitly lists both `zephyr`
+and "UNO Q") drives the 3 servos off that counter with the same
+`attach()`/`write()` API as classic `Servo`. See `sketch/sketch.ino` and
+`sketch/sketch.yaml` (RoboServo has to be explicitly declared in the
+sketch.yaml profile's `libraries:` list — it does not auto-resolve from the
+`#include` alone, unlike `Arduino_RouterBridge`).
+
 Calibration values (per-servo neutral/press angle, press dwell ms) live in
 `python/config/servo_calibration.yaml`. Do this calibration with the kiln
 **unpowered** first (verify mechanical actuation), then with the controller

@@ -24,7 +24,10 @@ land correctly via the camera before advancing.
 - **Arduino UNO Q** — STM32 MCU (real-time sketch side) + Linux MPU (Python
   "brain" side), connected internally over the Bridge RPC.
 - **8" touchscreen** (HDMI/USB or DSI, capacitive touch) — profile browser,
-  diagrams, run/monitor screen.
+  diagrams, run/monitor screen. Driven by a browser pointed at the app's
+  own web UI (port 7000) — a native GUI toolkit was tried first and
+  confirmed unworkable in the App Lab container (see
+  `docs/architecture.md`).
 - **Camera** — framed on the GM LT's red 7-segment display, used to read
   controller state (`python/kiln/vision.py`).
 - **3x servo button actuators** — one per GM LT key (ENTER, UP, DOWN),
@@ -43,41 +46,59 @@ this project is an "extra pair of hands," not a replacement brain.
 
 ```
 docs/                       Reference material (protocol, hardware, architecture)
-sketch/                     Arduino sketch (MCU side): drives the 3 servos
+sketch/                     Arduino sketch (MCU side): drives the 3 servos (RoboServo)
 python/                     App Lab Python app (Linux/MPU side)
   kiln/                     Domain logic: protocol tables, bridge client,
                              vision (7-seg reader), profiles, sequencer
-  ui/                       PySide6 touchscreen UI
+  web/                      REST/WebSocket route wiring (web_ui brick), talks to kiln/ only
   profiles/library/         Built-in profiles transcribed from the GM LT manual
   profiles/user/            User-created custom Ramp & Hold profiles
   config/                   Servo/camera calibration (machine-specific, not
                              generic defaults — see docs/hardware.md)
-  tests/                    Unit tests for protocol/profile logic (no hardware needed)
+  tests/                    Unit tests for kiln/ and web/ logic (no hardware needed)
+assets/                     Static frontend served by the web_ui brick
+  index.html, style.css, app.js, diagrams.js
+  libs/                     Vendored socket.io + the brick's WebUI JS wrapper
 hardware/                   Mechanical notes for the button actuators
-app.yaml                    Arduino App Lab manifest pairing sketch/ + python/
+app.yaml                    Arduino App Lab manifest (name/icon/ports/bricks)
 ```
 
 ## Status
 
-This is the initial framework: real protocol/profile data transcribed from
-the manual, a working (mock-able) sequencer and Bridge client, and a runnable
-PySide6 UI skeleton with a live ramp/hold/cool diagram widget. Camera-based
-7-segment reading and servo calibration are stubbed pending the physical
-build — see `TODO` markers in `python/kiln/vision.py` and
-`python/config/*.yaml`.
+Deployed and running end-to-end on real hardware (an Uno Q named "Steffi"):
+sketch compiles and flashes, the Python side reaches it over the Bridge RPC
+(`ping`/`press_button` both confirmed live), and the web UI serves real
+profile data over its REST API. What's still pending the physical build:
+camera-based 7-segment reading (`RealVision` is a deliberate stub — see
+`TODO(hardware)` in `python/kiln/vision.py`) and servo mounting/calibration
+(`python/config/servo_calibration.yaml`). See `docs/architecture.md` for
+the full trail of what was confirmed on real hardware vs. still assumed,
+including two dead ends worth knowing about before you touch this again:
+PySide6 doesn't work in the App Lab container (missing graphics libs), and
+this board's PWM pins are fixed at 500Hz so the classic `Servo` library
+doesn't either — both documented there with what to use instead.
 
-## Getting started (once deployed to the Uno Q)
+## Getting started
+
+**On the Uno Q**, via App Lab or `arduino-app-cli app start <path>` — no
+arguments needed, `python/main.py` finds everything by convention. The
+touchscreen (or any browser on the same network) reaches the UI at
+`http://<board-ip>:7000`.
+
+**Away from the kiln**, for developing/testing `kiln/` and `web/api.py`'s
+route logic (the App Lab-only pieces — `arduino.app_utils`,
+`arduino.app_bricks.web_ui` — aren't pip-installable off-device, so this
+only proves construction + route registration, not a real HTTP server):
 
 ```bash
 cd python
 pip install -r requirements.txt
-python main.py
+python main.py --mock-bridge --mock-vision
 ```
 
-`main.py` starts the Bridge connection to the sketch and launches the Qt UI.
-During development away from the kiln, run with `--mock-bridge` /
-`--mock-vision` (see `main.py`) to exercise the UI and sequencer without
-real hardware attached.
+Real automated coverage of both layers lives in `python/tests/` (17 tests,
+run with `pytest` from `python/`) — that's what to extend, not manual runs
+of `main.py`.
 
 ## Key references
 

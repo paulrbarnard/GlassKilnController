@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""App Lab entry point (Linux/MPU side) — brings up the Bridge connection to
-sketch/sketch.ino and launches the PySide6 touchscreen UI.
+"""App Lab entry point (Linux/MPU side).
 
-Usage on the Uno Q (via App Lab / app.yaml):
+Brings up the Bridge connection to sketch/sketch.ino and the touchscreen
+web UI (served by the App Lab ``web_ui`` brick — see docs/architecture.md
+for why this replaced an earlier PySide6 attempt, confirmed unworkable in
+this container on real hardware).
+
+Usage on the Uno Q (via App Lab / app.yaml — no arguments; App Lab doesn't
+pass any):
     python main.py
 
-Usage for UI/sequencer development away from the kiln:
+Usage for developing/testing kiln/ and web/api.py's route wiring away from
+the kiln (arduino.app_utils/arduino.app_bricks aren't installable off
+App Lab, so this only exercises construction + registration, not a real
+HTTP server — see python/tests/ for the real automated coverage of both):
     python main.py --mock-bridge --mock-vision
     python main.py --mock-bridge --mock-vision --mock-script IdLE,Auto,SLo,FULL,rEdI,ON
-
-``--mock-script`` feeds MockVision a comma-separated sequence of raw display
-strings (see kiln/vision.py) so a whole profile run can be exercised without
-a camera or kiln attached.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
 
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
@@ -101,6 +104,7 @@ def main() -> int:
 
     from kiln.profiles import ProfileLibrary
     from kiln.sequencer import Sequencer
+    from web.api import register_routes
 
     bridge = build_bridge(args.mock_bridge)
     vision = build_vision(args.mock_vision, args.mock_script)
@@ -113,16 +117,32 @@ def main() -> int:
             "fail until the MCU side is reachable"
         )
 
-    # Import Qt lazily so `python main.py --help` etc. don't require a
-    # display server to be available.
-    from PySide6.QtWidgets import QApplication
+    if args.mock_bridge or args.mock_vision:
+        # Off-device dev mode: arduino.app_bricks isn't installable here, so
+        # just prove construction + route registration succeed. Real route
+        # *behavior* is covered by python/tests/test_web_api.py with a fake
+        # ui double — see that file to extend coverage without a board.
+        class _PrintingUI:
+            def expose_api(self, method: str, path: str, handler) -> None:
+                logging.info("would register %s %s -> %s", method, path, handler.__name__)
 
-    from ui.app import MainWindow
+            def send_message(self, event: str, data: dict) -> None:
+                logging.info("would push %s: %s", event, data)
 
-    app = QApplication(sys.argv)
-    window = MainWindow(library=library, sequencer=sequencer)
-    window.showFullScreen()  # kiosk-style on the 8" touchscreen
-    return app.exec()
+        register_routes(_PrintingUI(), sequencer, library)
+        logging.info(
+            "dev mode OK: %d profiles loaded, routes registered against a fake ui",
+            len(library.all()),
+        )
+        return 0
+
+    from arduino.app_bricks.web_ui import WebUI  # type: ignore
+    from arduino.app_utils import App  # type: ignore
+
+    ui = WebUI()
+    register_routes(ui, sequencer, library)
+    App.run()  # blocks until the app is stopped
+    return 0
 
 
 if __name__ == "__main__":

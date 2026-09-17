@@ -7,15 +7,14 @@ and ``ping()``. Everything else in this codebase should go through
 rest of the app doesn't care whether it's talking to real hardware or
 ``MockBridge``.
 
-API note: ``arduino.app_utils.Bridge`` on the Python side is confirmed (via
-public UNO Q examples) to support ``Bridge.provide(name, fn)`` for exposing
-Python functions to the sketch. Calling *into* the sketch from Python is
-documented to work symmetrically over the same RPC router, but this
-repo hasn't yet been run against real App Lab hardware to confirm the exact
-call spelling — ``Bridge.call(name, *args).result()`` below is the best
-grounded guess (mirrors the confirmed sketch-side
-``Bridge.call("name").result(var)`` pattern) and is the first thing to
-verify against `arduino.app_utils` docs/examples once hardware is in hand.
+API note: confirmed by actually calling into a running sketch on real
+hardware (an Uno Q named "Steffi"), not just documentation. Unlike the
+sketch-side C++ pattern (``Bridge.call("name").result(var)``, async +
+explicit result fetch), ``arduino.app_utils.Bridge.call(name, *args)`` on
+the Python side is **synchronous and returns the value directly** — no
+``.result()``. Confirmed via a real RPC round trip: ``Bridge.call("ping")``
+returned ``True`` and ``Bridge.call("press_button", 1, 150)`` returned
+``True`` and actually moved the servo.
 """
 
 from __future__ import annotations
@@ -73,20 +72,18 @@ class RealBridge(KilnBridge):
         self._bridge = Bridge
 
     def press(self, key: Key, hold_ms: int = SHORT_PRESS_MS) -> None:
-        ok = self._bridge.call("press_button", key.value, hold_ms).result()
+        ok = self._bridge.call("press_button", key.value, hold_ms)
         if not ok:
             raise BridgeError(f"press_button({key!r}, {hold_ms}) rejected by sketch")
 
     def calibrate(self, key: Key, rest_deg: int, press_deg: int) -> None:
-        ok = self._bridge.call(
-            "calibrate_servo", key.value, rest_deg, press_deg
-        ).result()
+        ok = self._bridge.call("calibrate_servo", key.value, rest_deg, press_deg)
         if not ok:
             raise BridgeError(f"calibrate_servo({key!r}) rejected by sketch")
 
     def ping(self) -> bool:
         try:
-            return bool(self._bridge.call("ping").result())
+            return bool(self._bridge.call("ping"))
         except Exception:  # noqa: BLE001 - any RPC failure means unreachable
             return False
 
