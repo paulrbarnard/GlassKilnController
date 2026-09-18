@@ -210,4 +210,9 @@ class ProfileLibrary:
             raise ValueError(f"no user profile named {profile_id!r}")
         path = self.user_dir / f"{profile_id}.json"
         path.unlink(missing_ok=True)
-        del self._profiles[profile_id]
+        # Reload rather than just dropping the dict entry: if this id also
+        # exists under library_dir (i.e. this was an edited factory
+        # profile "shadowing" it — see Profile editing in web/api.py), the
+        # library version should reappear now that the override is gone,
+        # not disappear from the list entirely.
+        self.load()

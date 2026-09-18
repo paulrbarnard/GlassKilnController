@@ -7,27 +7,31 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- Home: browse built-in + user profiles -->
+    <!-- Home: browse built-in + user profiles as icon cards -->
     <section id="screen-home" class="screen active">
-      <h1>Glass Kiln Controller</h1>
+      <h1><span id="home-icon"></span> Glass Kiln Controller</h1>
       <p class="status-line" id="bridge-status">Bridge: unknown</p>
-      <ul class="profile-list" id="profile-list"></ul>
+      <div class="profile-grid" id="profile-list"></div>
       <div class="row space-between">
-        <button id="new-profile-btn">+ New Custom Profile</button>
-        <button id="settings-btn">Settings</button>
+        <button class="icon-btn" id="new-profile-btn"><span id="new-icon"></span> New Custom Profile</button>
+        <button class="icon-btn" id="settings-btn"><span id="settings-icon"></span> Settings</button>
       </div>
     </section>
 
-    <!-- Profile detail: diagram + description + Start -->
+    <!-- Profile detail: diagram + glanceable stats + Start -->
     <section id="screen-profile" class="screen">
       <div class="row space-between">
         <button id="profile-back-btn">&larr; Back</button>
         <button id="profile-edit-btn">Edit</button>
       </div>
       <h2 id="profile-title"></h2>
-      <p class="description" id="profile-description"></p>
       <div class="diagram-wrap"><canvas id="profile-diagram"></canvas></div>
-      <div class="segments-text" id="profile-segments"></div>
+      <div class="stat-tiles" id="profile-stats"></div>
+      <p class="description" id="profile-description"></p>
+      <details class="segment-details">
+        <summary>Segment-by-segment breakdown</summary>
+        <div class="segments-text" id="profile-segments"></div>
+      </details>
       <button class="primary" id="start-firing-btn">Start Firing</button>
     </section>
 
@@ -35,12 +39,12 @@
     <section id="screen-run" class="screen">
       <h2 id="run-title"></h2>
       <div class="diagram-wrap"><canvas id="run-diagram"></canvas></div>
-      <div class="log" id="run-log"></div>
       <div class="row wrap">
-        <button id="skip-btn">Skip Segment</button>
-        <button id="add-time-btn">+5 min</button>
-        <button id="add-temp-btn">+5&deg;F</button>
+        <button class="icon-btn" id="skip-btn"><span id="skip-icon"></span> Skip Segment</button>
+        <button class="icon-btn" id="add-time-btn"><span id="add-time-icon"></span> +5 min</button>
+        <button class="icon-btn" id="add-temp-btn"><span id="add-temp-icon"></span> +3&deg;C</button>
       </div>
+      <div class="log" id="run-log"></div>
       <button class="danger" id="stop-btn">STOP</button>
     </section>
 
@@ -56,8 +60,8 @@
       <table class="segment-editor" id="editor-table">
         <thead>
           <tr>
-            <th>Rate (&deg;F/hr)</th>
-            <th>Target Temp (&deg;F)</th>
+            <th>Rate (&deg;C/hr)</th>
+            <th>Target Temp (&deg;C)</th>
             <th>Hold (min)</th>
             <th></th>
           </tr>
@@ -75,9 +79,9 @@
       <div class="row space-between">
         <button id="settings-back-btn">&larr; Back</button>
       </div>
-      <h2>Settings</h2>
+      <h2><span id="settings-header-icon"></span> Settings</h2>
       <p class="status-line" id="settings-bridge-status">Bridge: unknown</p>
-      <button id="mgf-toggle-btn">Toggle Modify GlassFire Mode (MGF)</button>
+      <button class="icon-btn" id="mgf-toggle-btn"><span id="mgf-icon"></span> Toggle Modify GlassFire Mode (MGF)</button>
       <div class="row">
         <button id="scale-f-btn">Set &deg;F</button>
         <button id="scale-c-btn">Set &deg;C</button>
@@ -88,6 +92,8 @@
 
     <script src="libs/socket.io.min.js"></script>
     <script src="libs/arduino.js"></script>
+    <script src="icons.js"></script>
+    <script src="keyboard.js"></script>
     <script src="diagrams.js"></script>
     <script src="app.js"></script>
   </body>

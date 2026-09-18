@@ -8,8 +8,41 @@
 // App Lab container; see docs/architecture.md).
 
 const ROOM_TEMP_F = 75;
-const PRE_ANNEALING_TARGET_F = 960; // see kiln/protocol.py
-const ANNEALING_END_F = 800;
+
+// All segment data (from the API, and everything in this file's math) is
+// in Fahrenheit — that's what the GM LT manual, the factory GlassFire
+// tables, and the physical controller's own button-press programming are
+// specified in (see kiln/protocol.py). °C is a *display-only* conversion
+// applied at the last moment, here and in app.js, never stored.
+function fToC(f) {
+  return ((f - 32) * 5) / 9;
+}
+
+// A rate is a difference (°/hr), not an absolute temperature — converting
+// it is just the 5/9 scale factor, no -32 offset.
+function rateFToC(fPerHr) {
+  return (fPerHr * 5) / 9;
+}
+
+// Inverse conversions, for the profile editor: it displays and accepts °C,
+// but the API (and everything downstream — protocol.py, the sequencer,
+// the controller's own button-press programming) is Fahrenheit, so values
+// get converted back at the moment they're read out of the form.
+function cToF(c) {
+  return (c * 9) / 5 + 32;
+}
+
+function rateCToF(cPerHr) {
+  return (cPerHr * 9) / 5;
+}
+
+function formatDuration(minutes) {
+  if (minutes >= 60) {
+    const hours = minutes / 60;
+    return `${hours % 1 === 0 ? hours.toFixed(0) : hours.toFixed(1)}h`;
+  }
+  return `${minutes.toFixed(0)} min`;
+}
 
 function computePoints(segments, startTempF = ROOM_TEMP_F) {
   const points = [{ hours: 0, tempF: startTempF, segIndex: -1 }];
@@ -30,7 +63,8 @@ function computePoints(segments, startTempF = ROOM_TEMP_F) {
   return points;
 }
 
-function drawRampDiagram(canvas, segments, currentSegmentIndex = null) {
+function drawRampDiagram(canvas, segments, currentSegmentIndex = null, options = {}) {
+  const minimal = !!options.minimal;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const cssWidth = canvas.clientWidth;
@@ -45,25 +79,28 @@ function drawRampDiagram(canvas, segments, currentSegmentIndex = null) {
   const line = styles.getPropertyValue('--diagram-line').trim() || '#ff7a3d';
   const current = styles.getPropertyValue('--diagram-current').trim() || '#ffd23d';
   const label = styles.getPropertyValue('--diagram-label').trim() || '#e8e8ea';
-  const annealBand = styles.getPropertyValue('--diagram-anneal').trim() || 'rgba(80,140,255,0.16)';
 
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, cssWidth, cssHeight);
+  if (!minimal) {
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, cssWidth, cssHeight);
+  }
 
   if (!segments || segments.length === 0) {
-    ctx.fillStyle = label;
-    ctx.font = '14px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('No profile selected', cssWidth / 2, cssHeight / 2);
+    if (!minimal) {
+      ctx.fillStyle = label;
+      ctx.font = '18px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('No profile selected', cssWidth / 2, cssHeight / 2);
+    }
     return;
   }
 
   const points = computePoints(segments);
-  const marginLeft = 56;
-  const marginRight = 16;
-  const marginTop = 16;
-  const marginBottom = 36;
+  const marginLeft = minimal ? 4 : 70;
+  const marginRight = minimal ? 4 : 16;
+  const marginTop = minimal ? 4 : 46;
+  const marginBottom = minimal ? 4 : 46;
   const plotW = Math.max(1, cssWidth - marginLeft - marginRight);
   const plotH = Math.max(1, cssHeight - marginTop - marginBottom);
 
@@ -78,36 +115,28 @@ function drawRampDiagram(canvas, segments, currentSegmentIndex = null) {
     return [x, y];
   };
 
-  // Annealing band (p.24: 960 -> 800 F), for context, when in range.
-  if (!(minTemp > PRE_ANNEALING_TARGET_F || maxTemp < ANNEALING_END_F)) {
-    const yTop =
-      marginTop + plotH - ((Math.min(PRE_ANNEALING_TARGET_F, maxTemp) - minTemp) / tempSpan) * plotH;
-    const yBot =
-      marginTop + plotH - ((Math.max(ANNEALING_END_F, minTemp) - minTemp) / tempSpan) * plotH;
-    ctx.fillStyle = annealBand;
-    ctx.fillRect(marginLeft, yTop, plotW, yBot - yTop);
+  if (!minimal) {
+    // Axes
+    ctx.strokeStyle = axis;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(marginLeft, marginTop + plotH);
+    ctx.lineTo(marginLeft + plotW, marginTop + plotH);
+    ctx.moveTo(marginLeft, marginTop);
+    ctx.lineTo(marginLeft, marginTop + plotH);
+    ctx.stroke();
+
+    ctx.fillStyle = label;
+    ctx.font = 'bold 17px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`${fToC(maxTemp).toFixed(0)}°C`, marginLeft - 8, marginTop);
+    ctx.fillText(`${fToC(minTemp).toFixed(0)}°C`, marginLeft - 8, marginTop + plotH - 18);
+    ctx.textAlign = 'left';
+    ctx.fillText('0h', marginLeft, marginTop + plotH + 8);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${maxHours.toFixed(1)}h total`, marginLeft + plotW, marginTop + plotH + 8);
   }
-
-  // Axes
-  ctx.strokeStyle = axis;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(marginLeft, marginTop + plotH);
-  ctx.lineTo(marginLeft + plotW, marginTop + plotH);
-  ctx.moveTo(marginLeft, marginTop);
-  ctx.lineTo(marginLeft, marginTop + plotH);
-  ctx.stroke();
-
-  ctx.fillStyle = label;
-  ctx.font = '11px system-ui, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'top';
-  ctx.fillText(`${maxTemp.toFixed(0)}°F`, marginLeft - 6, marginTop);
-  ctx.fillText(`${minTemp.toFixed(0)}°F`, marginLeft - 6, marginTop + plotH - 12);
-  ctx.textAlign = 'left';
-  ctx.fillText('0h', marginLeft, marginTop + plotH + 6);
-  ctx.textAlign = 'right';
-  ctx.fillText(`${maxHours.toFixed(1)}h total`, marginLeft + plotW, marginTop + plotH + 6);
 
   // Line
   ctx.strokeStyle = line;
@@ -119,6 +148,37 @@ function drawRampDiagram(canvas, segments, currentSegmentIndex = null) {
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
+
+  // Per-segment annotations: the rate along each ramp leg, and — at the
+  // vertex it ramps to — the resulting temperature, combined with the
+  // dwell time in a single label when that segment holds (one label per
+  // vertex, not two competing for the same spot). This is what makes the
+  // diagram self-explanatory without opening the collapsed segment
+  // breakdown text. Skipped in minimal (card-thumbnail) mode: too little
+  // room to render legibly at that size.
+  if (!minimal) {
+    ctx.fillStyle = label;
+    ctx.textAlign = 'center';
+    for (let j = 1; j < points.length; j++) {
+      const prev = points[j - 1];
+      const cur = points[j];
+      if (cur.segIndex === prev.segIndex) continue; // flat hold leg, already labeled at its start
+      const seg = segments[cur.segIndex];
+      const rising = cur.tempF >= prev.tempF;
+
+      const [mx, my] = toXY({ hours: (prev.hours + cur.hours) / 2, tempF: (prev.tempF + cur.tempF) / 2 });
+      ctx.font = '16px system-ui, sans-serif';
+      ctx.textBaseline = rising ? 'bottom' : 'top';
+      ctx.fillText(`${rateFToC(seg.rate_f_per_hr).toFixed(0)}°C/hr`, mx, my + (rising ? -6 : 6));
+
+      const [ex, ey] = toXY(cur);
+      const tempLabel = `${fToC(cur.tempF).toFixed(0)}°C`;
+      const vertexLabel = seg.hold_minutes ? `${tempLabel}, ${formatDuration(seg.hold_minutes)} hold` : tempLabel;
+      ctx.font = 'bold 17px system-ui, sans-serif';
+      ctx.textBaseline = rising ? 'bottom' : 'top';
+      ctx.fillText(vertexLabel, ex, ey + (rising ? -9 : 9));
+    }
+  }
 
   // Current segment highlight
   if (currentSegmentIndex !== null && currentSegmentIndex !== undefined) {
@@ -141,7 +201,7 @@ function describeSegments(segments) {
   return segments
     .map((seg, i) => {
       const hold = seg.hold_minutes ? `, hold ${seg.hold_minutes.toFixed(0)} min` : '';
-      return `${i + 1}. Ramp at ${seg.rate_f_per_hr.toFixed(0)}°F/hr to ${seg.target_temp_f.toFixed(0)}°F${hold}`;
+      return `${i + 1}. Ramp at ${rateFToC(seg.rate_f_per_hr).toFixed(0)}°C/hr to ${fToC(seg.target_temp_f).toFixed(0)}°C${hold}`;
     })
     .join('\n');
 }

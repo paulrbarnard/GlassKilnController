@@ -77,10 +77,66 @@ Calibration procedure (see `python/kiln/vision.py` `TODO`s):
 
 ## Touchscreen
 
-8" touchscreen, driven by the Uno Q's Linux side. Confirm which interface
-(HDMI+USB-touch vs. DSI/MIPI) before finalizing mounting — affects cabling
-route through the overlay enclosure. PySide6 (`python/ui/`) runs full-screen
-on this display; no separate kiosk browser needed.
+Driven by the Uno Q's Linux side over HDMI, via a plain Chromium browser in
+kiosk mode pointed at the app's own `web_ui` server (`http://localhost:7000`
+— see docs/architecture.md for why it's a browser and not a native GUI).
+This is genuinely a normal XFCE desktop (`lightdm` + `xfce4-session`)
+sitting behind it, not something App Lab wires up for you automatically —
+confirmed on real hardware: with nothing configured, the screen just sits
+at the lightdm login greeter forever. Kiosk behavior is bog-standard Linux
+kiosk setup, unrelated to App Lab itself:
+
+```bash
+# 1. Auto-login the arduino user into the XFCE session on boot
+sudo mkdir -p /etc/lightdm/lightdm.conf.d
+sudo tee /etc/lightdm/lightdm.conf.d/50-glasskiln-autologin.conf <<'CONF'
+[Seat:*]
+autologin-user=arduino
+autologin-user-timeout=0
+autologin-session=xfce
+CONF
+
+# 2. Autostart Chromium in kiosk mode once that session starts
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/glasskiln-kiosk.desktop <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Glass Kiln Kiosk
+Exec=sh -c 'xset s off; xset -dpms; chromium --kiosk --incognito --noerrdialogs --disable-infobars --disable-session-crashed-bubble http://localhost:7000'
+X-GNOME-Autostart-enabled=true
+DESKTOP
+
+sudo systemctl restart lightdm
+```
+
+`--incognito` isn't optional polish: without it, Chromium's on-disk HTTP
+cache survives a kiosk relaunch, so after redeploying updated
+`assets/*.js` you can restart the browser and still see the *previous*
+version — confirmed the hard way during development. `xset s off`/`-dpms`
+stop the screen blanking, since a kiosk display going to sleep mid-firing
+defeats the point. To pick up a fresh deploy manually without a full
+reboot: `pkill -x chromium`, then re-run the `chromium --kiosk ...` line
+from a shell with `DISPLAY=:0` and `XAUTHORITY=/home/arduino/.Xauthority`
+exported (that's what a real login session sets up for you automatically;
+an SSH shell doesn't have them by default).
+
+### Touch input
+
+Confirmed non-functional on the panel currently in hand: it enumerates on
+USB (`lsusb` shows `4348:55e0 WinChipHead`) but creates no input device at
+all. That VID:PID with a **vendor-specific USB class** (not HID) is the
+signature of a WCH CH55x/CH57x-series microcontroller sitting in its
+**ISP/bootloader mode** rather than running touch-controller firmware —
+confirmed this is consistent (same result after a fresh unplug/replug, not
+a one-off fluke). This is a board-firmware problem, not a Linux driver gap:
+check for a BOOT/ISP jumper or button on the touch controller board, or
+treat it as needing a replacement/reflash from the seller. Until resolved,
+`assets/keyboard.js`'s number/letter key-hint system + arrow-key grid
+navigation in the profile editor (`assets/app.js`) are the interim input
+method (see
+`docs/architecture.md`) — genuinely useful as a permanent accessibility
+fallback too, not just a workaround, so there's no strong reason to rip it
+out once touch works.
 
 ## Safety
 

@@ -68,7 +68,11 @@ def register_routes(ui: UILike, sequencer: Sequencer, library: ProfileLibrary) -
     # -- profiles -------------------------------------------------------
 
     def list_profiles():
-        return {"profiles": [_summary(p) for p in library.all()]}
+        # Full _detail (segments included), not just _summary: the home
+        # screen shows a glanceable peak-temperature number per card, which
+        # needs each profile's resolved segments up front rather than a
+        # second round trip per card.
+        return {"profiles": [_detail(p) for p in library.all()]}
 
     def get_profile(profile_id: str):
         try:
@@ -170,13 +174,18 @@ def register_routes(ui: UILike, sequencer: Sequencer, library: ProfileLibrary) -
 
 
 def _summary(profile: Profile) -> dict:
-    return {
+    d = {
         "id": profile.id,
         "name": profile.name,
         "description": profile.description,
         "kind": profile.kind.value,
         "source": profile.source,
     }
+    # process/speed let the UI pick an icon without parsing the id string.
+    if profile.glassfire is not None:
+        d["process"] = profile.glassfire.process.value
+        d["speed"] = profile.glassfire.speed.value
+    return d
 
 
 def _detail(profile: Profile) -> dict:

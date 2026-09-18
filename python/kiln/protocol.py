@@ -254,6 +254,14 @@ MAX_PRO_SEGMENTS = 8
 MAX_PRO_SLOTS = 5
 FACTORY_CASTING_SLOT = 5
 
+# Entry limits (pp.16-17) — the controller itself refuses values beyond
+# these; the profile editor UI clamps to the same bounds rather than
+# letting someone build a profile the physical controller would reject.
+MAX_PROCESS_TEMP_F = 1650.0
+MAX_HOLD_HOURS = 99
+MAX_HOLD_MINUTES_PART = 99
+MAX_HOLD_MINUTES_TOTAL = MAX_HOLD_HOURS * 60 + MAX_HOLD_MINUTES_PART
+
 
 # ---------------------------------------------------------------------------
 # Size/speed guidance shown to the user (p.14) — advisory only, not a
@@ -303,7 +311,10 @@ def suggest_speed(thickness_in: float, diameter_in: float) -> Speed:
 
 
 # ---------------------------------------------------------------------------
-# Critical temperature ranges (p.24) — for UI copy / diagram annotation.
+# Critical temperature ranges (p.24) — reference data for the GlassFire
+# program structure (segments 3-4, pp.14-15). Not shown on any diagram —
+# the kiln is also used for non-glass annealing with unrelated targets, so
+# the UI doesn't assume this range applies to whatever's actually loaded.
 # ---------------------------------------------------------------------------
 
 PRE_ANNEALING_TARGET_F = 960.0  # fast cool ends here

@@ -146,6 +146,18 @@ descriptions shown to the human.
 Only possible via `PRO` reprogramming or via live `EDIT` mode (below); MGF
 (step 5 above) is the sanctioned way to do it per-run.
 
+### Entry limits (pp.16-17) — `protocol.MAX_PROCESS_TEMP_F` / `MAX_HOLD_HOURS`/`MAX_HOLD_MINUTES_PART`
+
+- **Temperature**: "The maximum temperature that can be entered is 1650°F
+  (899°C)" (p.16). Applies to any temperature entry (GlassFire process
+  temp, PRO segment temp).
+- **Hold time**: "The maximum time that can be entered is 99 Hours and 99
+  Minutes" (p.17) — entered as H.MM, not normalized (i.e. genuinely up to
+  99h *and* 99 more minutes, not capped at 100h). No documented minimum
+  for either; 0 is the sensible floor for hold, and room temperature is
+  the sensible floor for a target temperature the UI would ever suggest,
+  though the controller itself doesn't state one.
+
 ### Author + run a Ramp & Hold (PRO) program (pp.18-19)
 ```
 1. Advanced level required (see unlock sequence)

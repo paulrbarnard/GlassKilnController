@@ -14,7 +14,6 @@
   --diagram-line: #ff7a3d;
   --diagram-current: #ffd23d;
   --diagram-label: #e8e8ea;
-  --diagram-anneal: rgba(80, 140, 255, 0.16);
 }
 
 * {
@@ -28,6 +27,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 19px;
   overscroll-behavior: none;
   user-select: none;
   -webkit-user-select: none;
@@ -35,9 +35,9 @@ body {
 
 button {
   font-family: inherit;
-  font-size: 16px;
-  padding: 14px 18px;
-  border-radius: 10px;
+  font-size: 19px;
+  padding: 16px 20px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--panel-2);
   color: var(--text);
@@ -48,11 +48,18 @@ button:active {
   transform: translateY(1px);
 }
 
+button.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 button.primary {
   background: var(--accent-2);
   border-color: var(--accent-2);
   color: white;
-  font-size: 18px;
+  font-size: 20px;
+  font-weight: 600;
 }
 
 button.danger {
@@ -64,9 +71,9 @@ button.danger {
 input,
 textarea {
   font-family: inherit;
-  font-size: 15px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  font-size: 19px;
+  padding: 12px 14px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--panel-2);
   color: var(--text);
@@ -76,8 +83,8 @@ textarea {
   display: none;
   flex-direction: column;
   height: 100vh;
-  padding: 16px;
-  gap: 12px;
+  padding: 18px;
+  gap: 14px;
 }
 
 .screen.active {
@@ -85,18 +92,24 @@ textarea {
 }
 
 h1 {
-  font-size: 22px;
+  font-size: 30px;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 h2 {
-  font-size: 20px;
+  font-size: 26px;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .row {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -108,43 +121,90 @@ h2 {
   flex-wrap: wrap;
 }
 
-.profile-list {
+/* -- Home: icon-based profile cards, not a text list -- */
+
+.profile-grid {
   list-style: none;
   margin: 0;
   padding: 0;
   overflow-y: auto;
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: 1fr;
+  gap: 12px;
+  align-content: start;
 }
 
-.profile-list li {
+@media (max-width: 700px) {
+  .profile-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.profile-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
-  font-size: 16px;
+  border-radius: 14px;
+  padding: 12px;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 190px;
 }
 
-.profile-list li .name {
-  font-weight: 600;
+.profile-card .icon-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  color: var(--accent);
+  flex: 0 0 auto;
 }
 
-.profile-list li .desc {
+.profile-card .icon-row .speed {
   color: var(--text-dim);
-  font-size: 13px;
-  margin-top: 4px;
 }
+
+.profile-card .name {
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1.2;
+  flex: 0 0 auto;
+}
+
+.profile-card .card-diagram-wrap {
+  flex: 1;
+  min-height: 70px;
+}
+
+.profile-card canvas.card-diagram {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.profile-card .peak {
+  flex: 0 0 auto;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.profile-card .peak .unit {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* -- Diagram -- */
 
 .diagram-wrap {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 14px;
   flex: 1;
-  min-height: 180px;
-  padding: 8px;
+  min-height: 220px;
+  padding: 10px;
 }
 
 canvas {
@@ -153,30 +213,79 @@ canvas {
   display: block;
 }
 
+/* -- Glanceable stat tiles (replaces a wall of segment text) -- */
+
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.stat-tile {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.stat-tile .icon {
+  color: var(--accent);
+}
+
+.stat-tile .value {
+  font-size: 34px;
+  font-weight: 700;
+}
+
+.stat-tile .label {
+  font-size: 16px;
+  color: var(--text-dim);
+}
+
 .description {
   color: var(--text-dim);
+  font-size: 19px;
+}
+
+details.segment-details {
+  color: var(--text-dim);
+}
+
+details.segment-details summary {
+  cursor: pointer;
+  font-size: 17px;
+  padding: 6px 0;
 }
 
 .segments-text {
   font-family: ui-monospace, monospace;
-  font-size: 13px;
+  font-size: 16px;
   color: var(--text-dim);
   white-space: pre-wrap;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px;
+  margin-top: 6px;
 }
+
+/* -- Run log: present but visually secondary -- */
 
 .log {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px;
-  flex: 1;
+  max-height: 110px;
   overflow-y: auto;
   font-family: ui-monospace, monospace;
   font-size: 12px;
+  color: var(--text-dim);
 }
 
 .log .error {
@@ -186,11 +295,12 @@ canvas {
 table.segment-editor {
   width: 100%;
   border-collapse: collapse;
+  font-size: 16px;
 }
 
 table.segment-editor th,
 table.segment-editor td {
-  padding: 6px;
+  padding: 8px 6px;
   text-align: left;
 }
 
@@ -198,12 +308,37 @@ table.segment-editor input {
   width: 100%;
 }
 
-.badge-user::before {
-  content: "\2605 ";
+.badge-user {
   color: var(--accent);
 }
 
 .status-line {
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: 15px;
+}
+
+/* -- Interim keyboard-hint badges (see keyboard.js) -- */
+
+.hintable {
+  position: relative;
+}
+
+.key-hint {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #1b1b1f;
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 5;
 }
