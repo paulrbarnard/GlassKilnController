@@ -251,8 +251,15 @@ FACTORY_CASTING_PROGRAM: list[RampHoldSegment] = [
 ]
 
 MAX_PRO_SEGMENTS = 8
-MAX_PRO_SLOTS = 5
+MAX_PRO_SLOTS = 5  # physical controller capacity — at most this many profiles "active" at once
 FACTORY_CASTING_SLOT = 5
+
+# App-level cap on *saved* custom (Ramp & Hold) profiles — bigger than
+# MAX_PRO_SLOTS on purpose: you can keep a library of recipes and swap
+# which up-to-5 are actually programmed into the controller's PRO slots at
+# any given time. 12 rather than some other number because it fills one
+# 4-column grid screen exactly (see assets/index.html screen-custom).
+MAX_USER_PROFILES = 12
 
 # Entry limits (pp.16-17) — the controller itself refuses values beyond
 # these; the profile editor UI clamps to the same bounds rather than

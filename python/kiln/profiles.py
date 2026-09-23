@@ -19,13 +19,15 @@ instead) and user-created ones under ``profiles/user``.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 from kiln.protocol import (
     MAX_PRO_SEGMENTS,
+    MAX_PRO_SLOTS,
+    MAX_USER_PROFILES,
     Process,
     RampHoldSegment,
     Speed,
@@ -198,11 +200,94 @@ class ProfileLibrary:
     def get(self, profile_id: str) -> Profile:
         return self._profiles[profile_id]
 
-    def save_user_profile(self, profile: Profile) -> Path:
+    def _persist_as_user(self, profile: Profile) -> Path:
         profile.source = "user"
         path = save_profile(profile, self.user_dir)
         self._profiles[profile.id] = profile
         return path
+
+    def user_ramp_hold_count(self) -> int:
+        return sum(
+            1
+            for p in self._profiles.values()
+            if p.source == "user" and p.kind is ProfileKind.RAMP_HOLD
+        )
+
+    def save_user_profile(self, profile: Profile) -> Path:
+        is_new = profile.id not in self._profiles
+        if (
+            is_new
+            and profile.kind is ProfileKind.RAMP_HOLD
+            and self.user_ramp_hold_count() >= MAX_USER_PROFILES
+        ):
+            raise ValueError(
+                f"already have {MAX_USER_PROFILES} saved custom profiles "
+                "(the most this app keeps) — delete one before adding another"
+            )
+        return self._persist_as_user(profile)
+
+    def active_slot_holder(self, slot: int) -> Optional[Profile]:
+        return next((p for p in self._profiles.values() if p.pro_slot == slot), None)
+
+    def set_active_slot(self, profile_id: str, slot: Optional[int]) -> Profile:
+        """Assign (or clear) which physical PRO slot (1-5) a Ramp & Hold
+        profile is "active" in. At most one profile holds a given slot —
+        assigning it here deactivates whoever held it before (persisted as
+        a user shadow if that was a library profile, e.g. the factory
+        Casting program in slot 5 — the exact same shadowing
+        ``delete_user_profile`` relies on to "un-edit" a profile).
+
+        This only tracks *intent* (which recipe should live in which slot)
+        — it does not touch the physical controller. ``Sequencer.
+        program_ramp_hold`` still fully re-enters the segment data via
+        button presses every time a profile is run, so the controller's
+        actual slot contents are never assumed to already be correct from
+        a previous activation (see docs/architecture.md "press, then
+        verify").
+        """
+
+        profile = self._profiles.get(profile_id)
+        if profile is None or profile.kind is not ProfileKind.RAMP_HOLD:
+            raise ValueError(f"no custom profile named {profile_id!r}")
+
+        if slot is not None:
+            if not 1 <= slot <= MAX_PRO_SLOTS:
+                raise ValueError(f"slot must be 1-{MAX_PRO_SLOTS}, got {slot}")
+            holder = self.active_slot_holder(slot)
+            if holder is not None and holder.id != profile_id:
+                holder.pro_slot = None
+                self._persist_as_user(holder)
+
+        profile.pro_slot = slot
+        self._persist_as_user(profile)
+        return profile
+
+    def set_mgf_override(
+        self,
+        profile_id: str,
+        temp_override_f: Optional[float],
+        hold_override_minutes: Optional[float],
+    ) -> Profile:
+        """Persistently override a GlassFire profile's process temp/hold —
+        the app-level equivalent of the controller's MGF feature (pp.15-17),
+        except MGF only ever prompts per-run on the physical device; this
+        remembers the choice so it applies every time this profile runs.
+        Only the process (segment 2) values are touched — segments 1/3/4
+        stay the fixed factory values, matching what MGF itself can do (see
+        docs/controller_protocol.md).
+        """
+
+        profile = self._profiles.get(profile_id)
+        if profile is None or profile.kind is not ProfileKind.GLASSFIRE:
+            raise ValueError(f"no GlassFire profile named {profile_id!r}")
+        assert profile.glassfire is not None
+        profile.glassfire = replace(
+            profile.glassfire,
+            temp_override_f=temp_override_f,
+            hold_override_minutes=hold_override_minutes,
+        )
+        self._persist_as_user(profile)
+        return profile
 
     def delete_user_profile(self, profile_id: str) -> None:
         profile = self._profiles.get(profile_id)

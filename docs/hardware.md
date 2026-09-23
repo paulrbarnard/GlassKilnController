@@ -106,6 +106,15 @@ Exec=sh -c 'xset s off; xset -dpms; chromium --kiosk --incognito --noerrdialogs 
 X-GNOME-Autostart-enabled=true
 DESKTOP
 
+# 3. Make the App Lab app itself start on boot — steps 1-2 alone only
+# launch a browser; without this the container never starts, and the
+# kiosk boots straight into a "can't reach this site" page. Confirmed
+# the hard way: this app has no auto-start by default, at all, even
+# though it survives a plain "arduino-app-cli app restart" fine — that
+# only ever restarts an already-running container, it says nothing
+# about what happens after power is cut and it starts fully cold.
+arduino-app-cli properties set default ~/ArduinoApps/glass-kiln-controller
+
 sudo systemctl restart lightdm
 ```
 

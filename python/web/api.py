@@ -86,9 +86,9 @@ def register_routes(ui: UILike, sequencer: Sequencer, library: ProfileLibrary) -
             profile = Profile.from_dict(
                 {**body, "kind": ProfileKind.RAMP_HOLD.value, "source": "user"}
             )
+            library.save_user_profile(profile)
         except (KeyError, ValueError) as exc:
             return {"error": str(exc)}
-        library.save_user_profile(profile)
         return _detail(profile)
 
     def delete_profile(profile_id: str):
@@ -97,6 +97,35 @@ def register_routes(ui: UILike, sequencer: Sequencer, library: ProfileLibrary) -
         except ValueError as exc:
             return {"error": str(exc)}
         return {"ok": True}
+
+    def activate_profile(profile_id: str, body: dict):
+        try:
+            profile = library.set_active_slot(profile_id, body.get("slot"))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return _detail(profile)
+
+    def deactivate_profile(profile_id: str):
+        try:
+            profile = library.set_active_slot(profile_id, None)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return _detail(profile)
+
+    def set_mgf_override(profile_id: str, body: dict):
+        # Only the process (segment 2) temp/hold are ever overridable — see
+        # ProfileLibrary.set_mgf_override / docs/controller_protocol.md.
+        # Values here are °F, matching every other segment-bearing
+        # endpoint; the frontend converts from its °C inputs before POSTing.
+        try:
+            profile = library.set_mgf_override(
+                profile_id,
+                temp_override_f=body.get("temp_override_f"),
+                hold_override_minutes=body.get("hold_override_minutes"),
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return _detail(profile)
 
     # -- run lifecycle ----------------------------------------------------
 
@@ -162,6 +191,9 @@ def register_routes(ui: UILike, sequencer: Sequencer, library: ProfileLibrary) -
     ui.expose_api("GET", "/api/profiles/{profile_id}", get_profile)
     ui.expose_api("POST", "/api/profiles", save_profile)
     ui.expose_api("DELETE", "/api/profiles/{profile_id}", delete_profile)
+    ui.expose_api("POST", "/api/profiles/{profile_id}/activate", activate_profile)
+    ui.expose_api("POST", "/api/profiles/{profile_id}/deactivate", deactivate_profile)
+    ui.expose_api("POST", "/api/profiles/{profile_id}/mgf_override", set_mgf_override)
     ui.expose_api("POST", "/api/run/{profile_id}", run_profile)
     ui.expose_api("POST", "/api/stop", stop)
     ui.expose_api("POST", "/api/skip", skip_segment)
@@ -185,6 +217,10 @@ def _summary(profile: Profile) -> dict:
     if profile.glassfire is not None:
         d["process"] = profile.glassfire.process.value
         d["speed"] = profile.glassfire.speed.value
+        d["temp_override_f"] = profile.glassfire.temp_override_f
+        d["hold_override_minutes"] = profile.glassfire.hold_override_minutes
+    if profile.kind is ProfileKind.RAMP_HOLD:
+        d["pro_slot"] = profile.pro_slot
     return d
 
 

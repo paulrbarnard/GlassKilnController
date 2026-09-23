@@ -146,6 +146,18 @@ descriptions shown to the human.
 Only possible via `PRO` reprogramming or via live `EDIT` mode (below); MGF
 (step 5 above) is the sanctioned way to do it per-run.
 
+**UI implication:** segments 1/3/4 of every AUTO/GlassFire program are
+permanently fixed on the controller — there is no sequence that rewrites
+them. Segment 2 (process temp/hold) is only ever adjustable as a per-run
+MGF prompt, never a persistent rewrite. Because of this, `web/api.py`
+treats only `kind: ramp_hold` profiles (the factory Casting program in PRO
+slot 5, and anything user-created) as genuinely editable — editing one
+overwrites that same id/slot, which is honest because PRO-mode memory
+really is arbitrarily reprogrammable. GlassFire-kind profiles show
+"Duplicate as Custom" instead of "Edit": it starts a *new* `ramp_hold`
+profile pre-filled with the preset's current numbers, rather than
+implying the fixed AUTO preset itself changed.
+
 ### Entry limits (pp.16-17) — `protocol.MAX_PROCESS_TEMP_F` / `MAX_HOLD_HOURS`/`MAX_HOLD_MINUTES_PART`
 
 - **Temperature**: "The maximum temperature that can be entered is 1650°F

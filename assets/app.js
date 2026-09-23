@@ -4,6 +4,7 @@
 // views, not something that needs a build step.
 
 const MAX_SEGMENTS = 8;
+const MAX_USER_PROFILES = 12; // must match protocol.py MAX_USER_PROFILES
 
 async function api(method, path, body) {
   // cache: 'no-store' — without this, Chromium can serve a stale cached
@@ -61,57 +62,59 @@ function totalHours(segments) {
   return points[points.length - 1].hours;
 }
 
-async function loadProfiles() {
-  const { profiles } = await api('GET', '/api/profiles');
-  const list = document.getElementById('profile-list');
+// Builds one profile card (icon row, name, mini diagram, peak temp) and
+// registers its canvas for deferred drawing (canvases need real layout
+// size, so drawing happens after the grid is actually in the DOM — see
+// the requestAnimationFrame callers below). Shared by both grids;
+// renderCustomGrid adds its own status badge on top afterward.
+function buildProfileCard(p, fromScreen, diagramSink) {
+  const card = document.createElement('div');
+  card.className = 'profile-card';
+
+  const iconRow = document.createElement('div');
+  iconRow.className = 'icon-row';
+  iconRow.innerHTML = svgIcon(processIcon(p.process), 26);
+  if (p.speed) {
+    const speedSpan = document.createElement('span');
+    speedSpan.className = 'speed';
+    speedSpan.innerHTML = svgIcon(speedIcon(p.speed), 20);
+    iconRow.appendChild(speedSpan);
+  } else if (p.source === 'user') {
+    const star = document.createElement('span');
+    star.className = 'badge-user';
+    star.innerHTML = svgIcon('star', 18);
+    iconRow.appendChild(star);
+  }
+
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = p.name;
+
+  const diagramWrap = document.createElement('div');
+  diagramWrap.className = 'card-diagram-wrap';
+  const diagramCanvas = document.createElement('canvas');
+  diagramCanvas.className = 'card-diagram';
+  diagramWrap.appendChild(diagramCanvas);
+
+  card.append(iconRow, name, diagramWrap);
+
+  if (p.segments) {
+    const peak = document.createElement('div');
+    peak.className = 'peak';
+    peak.innerHTML = `${fToC(peakTempF(p.segments)).toFixed(0)}<span class="unit">°C peak</span>`;
+    card.appendChild(peak);
+    diagramSink.push([diagramCanvas, p.segments]);
+  }
+
+  card.addEventListener('click', () => openProfile(p.id, fromScreen));
+  return card;
+}
+
+function renderProfileGrid(containerId, profiles, fromScreen) {
+  const list = document.getElementById(containerId);
   list.innerHTML = '';
   const cardsWithDiagrams = [];
-
-  profiles
-    .slice()
-    .sort((a, b) => (a.source !== 'user') - (b.source !== 'user') || a.name.localeCompare(b.name))
-    .forEach((p) => {
-      const card = document.createElement('div');
-      card.className = 'profile-card';
-
-      const iconRow = document.createElement('div');
-      iconRow.className = 'icon-row';
-      iconRow.innerHTML = svgIcon(processIcon(p.process), 26);
-      if (p.speed) {
-        const speedSpan = document.createElement('span');
-        speedSpan.className = 'speed';
-        speedSpan.innerHTML = svgIcon(speedIcon(p.speed), 20);
-        iconRow.appendChild(speedSpan);
-      } else if (p.source === 'user') {
-        const star = document.createElement('span');
-        star.className = 'badge-user';
-        star.innerHTML = svgIcon('star', 18);
-        iconRow.appendChild(star);
-      }
-
-      const name = document.createElement('div');
-      name.className = 'name';
-      name.textContent = p.name;
-
-      const diagramWrap = document.createElement('div');
-      diagramWrap.className = 'card-diagram-wrap';
-      const diagramCanvas = document.createElement('canvas');
-      diagramCanvas.className = 'card-diagram';
-      diagramWrap.appendChild(diagramCanvas);
-
-      card.append(iconRow, name, diagramWrap);
-
-      if (p.segments) {
-        const peak = document.createElement('div');
-        peak.className = 'peak';
-        peak.innerHTML = `${fToC(peakTempF(p.segments)).toFixed(0)}<span class="unit">°C peak</span>`;
-        card.appendChild(peak);
-        cardsWithDiagrams.push([diagramCanvas, p.segments]);
-      }
-
-      card.addEventListener('click', () => openProfile(p.id));
-      list.appendChild(card);
-    });
+  profiles.forEach((p) => list.appendChild(buildProfileCard(p, fromScreen, cardsWithDiagrams)));
 
   // Canvases need real layout size before drawing, so draw after the
   // browser has laid out the grid, not while building each card.
@@ -122,9 +125,69 @@ async function loadProfiles() {
   });
 }
 
+// Custom screen: always exactly MAX_USER_PROFILES cells, consistent with
+// Standard's fixed 9-card layout, rather than a grid that grows/shrinks
+// and looks sparse with only a couple of saved profiles. Unfilled cells
+// are a distinct "+ Empty" placeholder that opens the new-profile editor.
+// Each real card gets a status badge stating exactly what "active" means
+// here: assigned to one of the 5 physical PRO slots, or not.
+function renderCustomGrid(profiles) {
+  const list = document.getElementById('custom-list');
+  list.innerHTML = '';
+  const cardsWithDiagrams = [];
+
+  const sorted = profiles.slice().sort((a, b) => {
+    const aActive = a.pro_slot ? 0 : 1;
+    const bActive = b.pro_slot ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    if (a.pro_slot && b.pro_slot) return a.pro_slot - b.pro_slot;
+    return a.name.localeCompare(b.name);
+  });
+
+  sorted.forEach((p) => {
+    const card = buildProfileCard(p, 'screen-custom', cardsWithDiagrams);
+    const status = document.createElement('div');
+    status.className = p.pro_slot ? 'slot-status active' : 'slot-status inactive';
+    status.textContent = p.pro_slot ? `ACTIVE — Slot ${p.pro_slot}` : 'Inactive';
+    card.insertBefore(status, card.firstChild);
+    list.appendChild(card);
+  });
+
+  for (let i = sorted.length; i < MAX_USER_PROFILES; i++) {
+    const card = document.createElement('div');
+    card.className = 'profile-card empty-slot';
+    card.innerHTML = `<div class="empty-slot-inner">${svgIcon('plus', 32)}<div class="name">Empty</div></div>`;
+    card.addEventListener('click', openNewProfileEditor);
+    list.appendChild(card);
+  }
+
+  requestAnimationFrame(() => {
+    cardsWithDiagrams.forEach(([canvas, segments]) =>
+      drawRampDiagram(canvas, segments, null, { minimal: true })
+    );
+  });
+}
+
+async function openStandard() {
+  showScreen('screen-standard');
+  refreshKeyHints();
+  const { profiles } = await api('GET', '/api/profiles');
+  const standard = profiles.filter((p) => p.kind === 'glassfire');
+  renderProfileGrid('standard-list', standard, 'screen-standard');
+  refreshKeyHints();
+}
+
+async function openCustom() {
+  showScreen('screen-custom');
+  refreshKeyHints();
+  const { profiles } = await api('GET', '/api/profiles');
+  renderCustomGrid(profiles.filter((p) => p.kind === 'ramp_hold'));
+  refreshKeyHints();
+}
+
 function goHome() {
   showScreen('screen-home');
-  loadProfiles().then(refreshKeyHints);
+  refreshKeyHints();
   refreshBridgeStatus();
 }
 
@@ -134,38 +197,150 @@ let currentProfile = null;
 
 function renderProfileStats(segments) {
   const holdMinutes = segments.reduce((sum, s) => sum + (s.hold_minutes || 0), 0);
-  const tiles = [
-    { icon: 'thermometer', value: `${fToC(peakTempF(segments)).toFixed(0)}°C`, label: 'Peak Temp' },
-    { icon: 'clock', value: `${totalHours(segments).toFixed(1)}h`, label: 'Total Time' },
-    { icon: 'clock', value: `${holdMinutes.toFixed(0)} min`, label: 'Total Hold' },
+  const items = [
+    { icon: 'thermometer', text: `${fToC(peakTempF(segments)).toFixed(0)}°C peak` },
+    { icon: 'clock', text: `${totalHours(segments).toFixed(1)}h total` },
+    { icon: 'clock', text: `${holdMinutes.toFixed(0)} min hold` },
   ];
-  document.getElementById('profile-stats').innerHTML = tiles
+  document.getElementById('profile-stats').innerHTML = items
     .map(
-      (t) => `
-    <div class="stat-tile">
-      <span class="icon">${svgIcon(t.icon, 26)}</span>
-      <span class="value">${t.value}</span>
-      <span class="label">${t.label}</span>
-    </div>`
+      (t) => `<span class="stat-item">${svgIcon(t.icon, 17)} ${t.text}</span>`
     )
-    .join('');
+    .join('<span class="stat-sep">·</span>');
 }
 
-async function openProfile(id) {
+let profileBackTarget = goHome; // set per-call below; a function, not a screen id
+
+async function openProfile(id, fromScreen) {
   const profile = await api('GET', `/api/profiles/${id}`);
   currentProfile = profile;
+  profileBackTarget = fromScreen === 'screen-custom' ? openCustom : fromScreen === 'screen-standard' ? openStandard : goHome;
   document.getElementById('profile-title').innerHTML = `${svgIcon(processIcon(profile.process), 24)} ${profile.name}`;
   document.getElementById('profile-description').textContent = profile.description;
   document.getElementById('profile-segments').textContent = describeSegments(profile.segments);
   renderProfileStats(profile.segments);
-  // Editable regardless of source: editing a factory profile reprograms
-  // that same slot (same id, saved under source "user"), it doesn't fork
-  // a separate copy — see openEditProfileEditor().
+  // Only PRO-mode-based profiles (kind ramp_hold: the factory Casting
+  // program in slot 5, and any user-created profile) are genuinely
+  // reprogrammable on the controller — editing them overwrites that same
+  // id/slot. AUTO/GlassFire presets are permanently fixed on the physical
+  // controller except for a per-run MGF temp/hold override (pp.16-17); the
+  // UI shouldn't offer "Edit" as if the preset itself could be rewritten.
+  // "Duplicate as Custom" is the honest equivalent: start a new, separate
+  // PRO-mode profile from this preset's numbers.
+  const isReprogrammable = profile.kind === 'ramp_hold';
+  document.getElementById('profile-edit-btn').style.visibility = isReprogrammable ? 'visible' : 'hidden';
+  document.getElementById('profile-duplicate-btn').style.visibility = isReprogrammable ? 'hidden' : 'visible';
+  document.getElementById('mgf-section').hidden = isReprogrammable;
+  document.getElementById('slot-section').hidden = !isReprogrammable;
+  if (!isReprogrammable) {
+    populateMgfFields(profile);
+  } else {
+    await renderSlotPicker(profile);
+  }
   showScreen('screen-profile');
   refreshKeyHints();
   requestAnimationFrame(() =>
     drawRampDiagram(document.getElementById('profile-diagram'), profile.segments)
   );
+}
+
+// -- MGF override (GlassFire profiles only) ----------------------------------
+//
+// The app-level equivalent of the controller's MGF feature: the process
+// (segment 2) peak temp + hold time, persisted rather than re-prompted
+// every run. Segments 1/3/4 are never shown here as editable — they're
+// permanently fixed on the controller (see docs/controller_protocol.md).
+
+function populateMgfFields(profile) {
+  const seg = profile.segments[1];
+  document.getElementById('mgf-temp').value = Math.round(fToC(seg.target_temp_f));
+  document.getElementById('mgf-hold').value = Math.round(seg.hold_minutes);
+}
+
+async function saveMgfOverride() {
+  const tempC = parseFloat(document.getElementById('mgf-temp').value);
+  const holdMin = parseFloat(document.getElementById('mgf-hold').value);
+  if (!Number.isFinite(tempC) || !Number.isFinite(holdMin)) {
+    alert('Enter a temperature and hold time.');
+    return;
+  }
+  try {
+    const profile = await api('POST', `/api/profiles/${currentProfile.id}/mgf_override`, {
+      temp_override_f: cToF(tempC),
+      hold_override_minutes: holdMin,
+    });
+    currentProfile = profile;
+    renderProfileStats(profile.segments);
+    document.getElementById('profile-segments').textContent = describeSegments(profile.segments);
+    drawRampDiagram(document.getElementById('profile-diagram'), profile.segments);
+  } catch (e) {
+    alert(`Could not save override: ${e.message}`);
+  }
+}
+
+async function clearMgfOverride() {
+  try {
+    const profile = await api('POST', `/api/profiles/${currentProfile.id}/mgf_override`, {
+      temp_override_f: null,
+      hold_override_minutes: null,
+    });
+    currentProfile = profile;
+    populateMgfFields(profile);
+    renderProfileStats(profile.segments);
+    document.getElementById('profile-segments').textContent = describeSegments(profile.segments);
+    drawRampDiagram(document.getElementById('profile-diagram'), profile.segments);
+  } catch (e) {
+    alert(`Could not clear override: ${e.message}`);
+  }
+}
+
+// -- Active PRO slot picker (Ramp & Hold profiles only) ----------------------
+
+async function renderSlotPicker(profile) {
+  const { profiles } = await api('GET', '/api/profiles');
+  const occupants = {};
+  profiles.forEach((p) => {
+    if (p.pro_slot) occupants[p.pro_slot] = p;
+  });
+
+  const container = document.getElementById('slot-buttons');
+  container.innerHTML = '';
+  for (let slot = 1; slot <= 5; slot++) {
+    const occupant = occupants[slot];
+    const isCurrent = profile.pro_slot === slot;
+    const btn = document.createElement('button');
+    btn.className = isCurrent ? 'slot-btn current' : 'slot-btn';
+    const occupantLabel = isCurrent ? 'this profile' : occupant ? occupant.name : '(empty)';
+    btn.innerHTML = `Slot ${slot}<span class="occupant">${occupantLabel}</span>`;
+    btn.addEventListener('click', () => handleSlotClick(profile, slot, isCurrent, occupant));
+    container.appendChild(btn);
+  }
+}
+
+async function handleSlotClick(profile, slot, isCurrent, occupant) {
+  if (isCurrent) {
+    if (!confirm(`Deactivate "${profile.name}" from slot ${slot}?`)) return;
+    try {
+      const updated = await api('POST', `/api/profiles/${profile.id}/deactivate`);
+      currentProfile = updated;
+      await renderSlotPicker(updated);
+      refreshKeyHints();
+    } catch (e) {
+      alert(`Could not deactivate: ${e.message}`);
+    }
+    return;
+  }
+  if (occupant && !confirm(`Slot ${slot} is currently "${occupant.name}". Replace it with "${profile.name}"?`)) {
+    return;
+  }
+  try {
+    const updated = await api('POST', `/api/profiles/${profile.id}/activate`, { slot });
+    currentProfile = updated;
+    await renderSlotPicker(updated);
+    refreshKeyHints();
+  } catch (e) {
+    alert(`Could not activate: ${e.message}`);
+  }
 }
 
 async function startFiring() {
@@ -293,12 +468,33 @@ function openNewProfileEditor() {
 }
 
 function openEditProfileEditor(profile) {
-  // Any profile is editable, including factory GlassFire ones — editing
-  // and saving reprograms that same id/slot (source becomes "user"), it
-  // doesn't fork a separate copy. profile.segments is already resolved
-  // (from the API's _detail()) regardless of the original kind.
+  // Only for kind ramp_hold — the profile screen hides this button for
+  // GlassFire presets (see openProfile()), but guard here too in case
+  // this is ever reached another way. Editing and saving reprograms that
+  // same id/slot (source becomes "user"), it doesn't fork a separate
+  // copy — that's only valid because ramp_hold profiles genuinely live
+  // in reprogrammable PRO-mode memory on the controller.
+  if (profile.kind !== 'ramp_hold') return;
   editingProfileId = profile.id;
   document.getElementById('editor-name').value = profile.name;
+  document.getElementById('editor-description').value = profile.description;
+  document.getElementById('editor-rows').innerHTML = '';
+  profile.segments.forEach((seg) => editorAddRow(seg));
+  showScreen('screen-editor');
+  refreshKeyHints();
+  requestAnimationFrame(() => {
+    editorRedraw();
+    focusFirstEditorField();
+  });
+}
+
+function openDuplicateProfileEditor(profile) {
+  // For GlassFire presets (Edit is hidden for these — see openProfile()):
+  // starts a brand new, separate PRO-mode profile pre-filled with this
+  // preset's current numbers. Saving creates a new id via slugify(name),
+  // it never touches the original preset.
+  editingProfileId = null;
+  document.getElementById('editor-name').value = `${profile.name} (Custom)`;
   document.getElementById('editor-description').value = profile.description;
   document.getElementById('editor-rows').innerHTML = '';
   profile.segments.forEach((seg) => editorAddRow(seg));
@@ -336,8 +532,7 @@ async function saveProfile() {
     return;
   }
   currentProfile = profile;
-  await loadProfiles();
-  openProfile(profile.id);
+  openProfile(profile.id, 'screen-custom');
 }
 
 // -- Editor keyboard navigation -----------------------------------------
@@ -479,6 +674,10 @@ ui.on_message('error', (data) => {
 
 // -- Wire up controls -------------------------------------------------------------
 
+document.getElementById('nav-standard-btn').addEventListener('click', openStandard);
+document.getElementById('nav-custom-btn').addEventListener('click', openCustom);
+document.getElementById('standard-back-btn').addEventListener('click', goHome);
+document.getElementById('custom-back-btn').addEventListener('click', goHome);
 document.getElementById('new-profile-btn').addEventListener('click', openNewProfileEditor);
 document.getElementById('settings-btn').addEventListener('click', () => {
   showScreen('screen-settings');
@@ -486,18 +685,23 @@ document.getElementById('settings-btn').addEventListener('click', () => {
   refreshBridgeStatus();
 });
 
-document.getElementById('profile-back-btn').addEventListener('click', goHome);
+document.getElementById('profile-back-btn').addEventListener('click', () => profileBackTarget());
 document.getElementById('profile-edit-btn').addEventListener('click', () => {
   if (currentProfile) openEditProfileEditor(currentProfile);
 });
+document.getElementById('profile-duplicate-btn').addEventListener('click', () => {
+  if (currentProfile) openDuplicateProfileEditor(currentProfile);
+});
 document.getElementById('start-firing-btn').addEventListener('click', startFiring);
+document.getElementById('mgf-save-btn').addEventListener('click', saveMgfOverride);
+document.getElementById('mgf-clear-btn').addEventListener('click', clearMgfOverride);
 
 document.getElementById('skip-btn').addEventListener('click', () => runAction('/api/skip', 'skip segment'));
 document.getElementById('add-time-btn').addEventListener('click', () => runAction('/api/add_time', 'add 5 min'));
 document.getElementById('add-temp-btn').addEventListener('click', () => runAction('/api/add_temp', 'add 3°C'));
 document.getElementById('stop-btn').addEventListener('click', stopFiring);
 
-document.getElementById('editor-back-btn').addEventListener('click', goHome);
+document.getElementById('editor-back-btn').addEventListener('click', openCustom);
 document.getElementById('editor-add-row-btn').addEventListener('click', () => {
   editorAddRow();
   editorRedraw();
@@ -517,8 +721,11 @@ document.getElementById('scale-c-btn').addEventListener('click', () =>
 document.getElementById('factory-reset-btn').addEventListener('click', factoryReset);
 
 window.addEventListener('resize', () => {
-  if (document.getElementById('screen-home').classList.contains('active')) {
-    loadProfiles().then(refreshKeyHints);
+  if (document.getElementById('screen-standard').classList.contains('active')) {
+    openStandard();
+  }
+  if (document.getElementById('screen-custom').classList.contains('active')) {
+    openCustom();
   }
   if (document.getElementById('screen-profile').classList.contains('active') && currentProfile) {
     drawRampDiagram(document.getElementById('profile-diagram'), currentProfile.segments);

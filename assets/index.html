@@ -7,15 +7,38 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <!-- Home: browse built-in + user profiles as icon cards -->
+    <!-- Home: top-level landing -->
     <section id="screen-home" class="screen active">
       <h1><span id="home-icon"></span> Glass Kiln Controller</h1>
       <p class="status-line" id="bridge-status">Bridge: unknown</p>
-      <div class="profile-grid" id="profile-list"></div>
-      <div class="row space-between">
-        <button class="icon-btn" id="new-profile-btn"><span id="new-icon"></span> New Custom Profile</button>
-        <button class="icon-btn" id="settings-btn"><span id="settings-icon"></span> Settings</button>
+      <div class="nav-stack">
+        <button class="primary" id="nav-standard-btn">Standard Glass Firing</button>
+        <button class="primary" id="nav-custom-btn">Custom Profiles</button>
       </div>
+      <button class="icon-btn" id="settings-btn"><span id="settings-icon"></span> Settings</button>
+    </section>
+
+    <!-- Standard: the 9 fixed AUTO/GlassFire presets (read-only on the
+         controller except for a per-run MGF temp/hold tweak) -->
+    <section id="screen-standard" class="screen">
+      <div class="row space-between">
+        <button id="standard-back-btn">&larr; Back</button>
+        <h1>Standard Glass Firing</h1>
+        <span style="width:1px"></span>
+      </div>
+      <div class="profile-grid" id="standard-list"></div>
+    </section>
+
+    <!-- Custom: PRO-mode-based profiles — the factory Casting program plus
+         up to 12 saved user profiles, up to 5 of which can be "active"
+         (assigned to a physical PRO slot) at once -->
+    <section id="screen-custom" class="screen">
+      <div class="row space-between">
+        <button id="custom-back-btn">&larr; Back</button>
+        <h1>Custom Profiles</h1>
+        <button class="icon-btn" id="new-profile-btn"><span id="new-icon"></span> New</button>
+      </div>
+      <div class="profile-grid" id="custom-list"></div>
     </section>
 
     <!-- Profile detail: diagram + glanceable stats + Start -->
@@ -23,10 +46,31 @@
       <div class="row space-between">
         <button id="profile-back-btn">&larr; Back</button>
         <button id="profile-edit-btn">Edit</button>
+        <button id="profile-duplicate-btn">Duplicate as Custom</button>
       </div>
       <h2 id="profile-title"></h2>
       <div class="diagram-wrap"><canvas id="profile-diagram"></canvas></div>
-      <div class="stat-tiles" id="profile-stats"></div>
+      <div class="stat-summary" id="profile-stats"></div>
+
+      <!-- GlassFire only: the one thing the manual's MGF feature actually
+           lets you adjust, persisted here rather than re-prompted every run -->
+      <div id="mgf-section" hidden>
+        <h3>Adjust Process (like the controller's MGF, but remembered)</h3>
+        <div class="row wrap mgf-row">
+          <label class="field-label">Peak &deg;C <input id="mgf-temp" type="number" /></label>
+          <label class="field-label">Hold min <input id="mgf-hold" type="number" /></label>
+          <button id="mgf-save-btn">Save</button>
+          <button id="mgf-clear-btn">Factory Default</button>
+        </div>
+      </div>
+
+      <!-- Ramp & Hold only: which physical PRO slot (1-5) this profile is
+           currently assigned to, if any -->
+      <div id="slot-section" hidden>
+        <h3>Active Slot</h3>
+        <div class="row wrap" id="slot-buttons"></div>
+      </div>
+
       <p class="description" id="profile-description"></p>
       <details class="segment-details">
         <summary>Segment-by-segment breakdown</summary>
