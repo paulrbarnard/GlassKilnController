@@ -170,24 +170,19 @@ function renderCustomGrid(profiles) {
 
 async function openStandard() {
   showScreen('screen-standard');
-  refreshKeyHints();
   const { profiles } = await api('GET', '/api/profiles');
   const standard = profiles.filter((p) => p.kind === 'glassfire');
   renderProfileGrid('standard-list', standard, 'screen-standard');
-  refreshKeyHints();
 }
 
 async function openCustom() {
   showScreen('screen-custom');
-  refreshKeyHints();
   const { profiles } = await api('GET', '/api/profiles');
   renderCustomGrid(profiles.filter((p) => p.kind === 'ramp_hold'));
-  refreshKeyHints();
 }
 
 function goHome() {
   showScreen('screen-home');
-  refreshKeyHints();
   refreshBridgeStatus();
 }
 
@@ -238,7 +233,6 @@ async function openProfile(id, fromScreen) {
     await renderSlotPicker(profile);
   }
   showScreen('screen-profile');
-  refreshKeyHints();
   requestAnimationFrame(() =>
     drawRampDiagram(document.getElementById('profile-diagram'), profile.segments)
   );
@@ -324,7 +318,6 @@ async function handleSlotClick(profile, slot, isCurrent, occupant) {
       const updated = await api('POST', `/api/profiles/${profile.id}/deactivate`);
       currentProfile = updated;
       await renderSlotPicker(updated);
-      refreshKeyHints();
     } catch (e) {
       alert(`Could not deactivate: ${e.message}`);
     }
@@ -337,7 +330,6 @@ async function handleSlotClick(profile, slot, isCurrent, occupant) {
     const updated = await api('POST', `/api/profiles/${profile.id}/activate`, { slot });
     currentProfile = updated;
     await renderSlotPicker(updated);
-    refreshKeyHints();
   } catch (e) {
     alert(`Could not activate: ${e.message}`);
   }
@@ -354,7 +346,6 @@ async function startFiring() {
   document.getElementById('run-title').innerHTML = `${svgIcon(processIcon(currentProfile.process), 24)} Firing: ${currentProfile.name}`;
   document.getElementById('run-log').innerHTML = '';
   showScreen('screen-run');
-  refreshKeyHints();
   requestAnimationFrame(() =>
     drawRampDiagram(document.getElementById('run-diagram'), currentProfile.segments)
   );
@@ -433,24 +424,8 @@ function editorAddRow(segF) {
   row.querySelector('.remove-row').addEventListener('click', () => {
     row.remove();
     editorRedraw();
-    refreshKeyHints();
   });
   tbody.appendChild(row);
-  refreshKeyHints();
-}
-
-function focusFirstEditorField() {
-  // None of the editor's fields are reachable through the number/letter
-  // key-hint system (those only target buttons/cards, not inputs — see
-  // keyboard.js), so without this a keyboard-only user would have no way
-  // to get focus into the form at all. Starts at Name — first in
-  // editorFieldList()'s order — so arrowing/typing flows naturally into
-  // Description and then the segment grid.
-  const first = editorFieldList()[0];
-  if (first) {
-    first.focus();
-    first.select();
-  }
 }
 
 function openNewProfileEditor() {
@@ -460,10 +435,8 @@ function openNewProfileEditor() {
   document.getElementById('editor-rows').innerHTML = '';
   editorAddRow();
   showScreen('screen-editor');
-  refreshKeyHints();
   requestAnimationFrame(() => {
     editorRedraw();
-    focusFirstEditorField();
   });
 }
 
@@ -481,10 +454,8 @@ function openEditProfileEditor(profile) {
   document.getElementById('editor-rows').innerHTML = '';
   profile.segments.forEach((seg) => editorAddRow(seg));
   showScreen('screen-editor');
-  refreshKeyHints();
   requestAnimationFrame(() => {
     editorRedraw();
-    focusFirstEditorField();
   });
 }
 
@@ -499,10 +470,8 @@ function openDuplicateProfileEditor(profile) {
   document.getElementById('editor-rows').innerHTML = '';
   profile.segments.forEach((seg) => editorAddRow(seg));
   showScreen('screen-editor');
-  refreshKeyHints();
   requestAnimationFrame(() => {
     editorRedraw();
-    focusFirstEditorField();
   });
 }
 
@@ -534,115 +503,6 @@ async function saveProfile() {
   currentProfile = profile;
   openProfile(profile.id, 'screen-custom');
 }
-
-// -- Editor keyboard navigation -----------------------------------------
-//
-// Left/Right tab through every field in order — Name, Description, then
-// each segment row's rate/temp/hold (like Tab/Shift+Tab, not spatial/
-// mouse-like movement). Up/Down on a numeric (segment grid) field spins
-// its value, accelerating the longer it's held, clamped to what the
-// controller will actually accept (protocol.py MAX_PROCESS_TEMP_F /
-// MAX_HOLD_MINUTES_TOTAL, pp.16-17 — mirrored here since this is a separate
-// runtime with no access to the Python constants); Up/Down do nothing on
-// Name/Description since there's no numeric meaning there.
-
-const EDITOR_MIN_TEMP_C = 0;
-const EDITOR_MAX_TEMP_C = Math.round(fToC(1650)); // manual p.16: max enterable temp
-const EDITOR_MIN_RATE_C = 1;
-const EDITOR_MAX_RATE_C = Math.round(rateFToC(9999)); // AS_FAST_AS_POSSIBLE, protocol.py
-const EDITOR_MIN_HOLD_MIN = 0;
-const EDITOR_MAX_HOLD_MIN = 99 * 60 + 99; // manual p.17: 99 hours AND 99 minutes
-
-function editorFieldList() {
-  const nameDescription = [
-    document.getElementById('editor-name'),
-    document.getElementById('editor-description'),
-  ];
-  return nameDescription.concat(Array.from(document.querySelectorAll('#editor-rows input')));
-}
-
-function editorFieldLimits(input) {
-  const cell = input.closest('td');
-  if (!cell) return null;
-  const cellIndex = Array.from(cell.parentElement.children).indexOf(cell);
-  if (cellIndex === 0) return { min: EDITOR_MIN_RATE_C, max: EDITOR_MAX_RATE_C };
-  if (cellIndex === 1) return { min: EDITOR_MIN_TEMP_C, max: EDITOR_MAX_TEMP_C };
-  if (cellIndex === 2) return { min: EDITOR_MIN_HOLD_MIN, max: EDITOR_MAX_HOLD_MIN };
-  return null;
-}
-
-function editorAdjustValue(input, direction, magnitude) {
-  const limits = editorFieldLimits(input);
-  if (!limits) return;
-  const current = parseFloat(input.value);
-  const base = Number.isFinite(current) ? current : 0;
-  const next = Math.min(limits.max, Math.max(limits.min, base + direction * magnitude));
-  input.value = Math.round(next);
-  input.dispatchEvent(new Event('input', { bubbles: true })); // redraws the preview diagram
-}
-
-let editorSpin = null; // { interval, startTime } — the currently-held Up/Down spin, if any
-let lastEditorFieldIndex = 0; // remembered so Escape (blur) -> arrow key re-enters, not no-ops
-
-function stopEditorSpin() {
-  if (editorSpin) {
-    clearInterval(editorSpin.interval);
-    editorSpin = null;
-  }
-}
-
-document.addEventListener('focusin', (e) => {
-  const fields = editorFieldList();
-  const idx = fields.indexOf(e.target);
-  if (idx !== -1) lastEditorFieldIndex = idx;
-});
-
-document.addEventListener('keydown', (e) => {
-  const activeScreen = document.querySelector('.screen.active');
-  if (!activeScreen || activeScreen.id !== 'screen-editor') return;
-
-  const el = document.activeElement;
-  const fields = editorFieldList();
-  const curIdx = fields.indexOf(el);
-  const inFieldList = curIdx !== -1;
-
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-    e.preventDefault();
-    if (fields.length === 0) return;
-    let idx;
-    if (inFieldList) {
-      idx = curIdx + (e.key === 'ArrowLeft' ? -1 : 1);
-    } else {
-      // Nothing focused (e.g. just Escaped out of a field) — re-select
-      // wherever we last were instead of doing nothing.
-      idx = lastEditorFieldIndex;
-    }
-    idx = Math.max(0, Math.min(fields.length - 1, idx));
-    fields[idx].focus();
-    fields[idx].select();
-    return;
-  }
-
-  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-    if (!inFieldList || !editorFieldLimits(el)) return; // no-op on Name/Description
-    e.preventDefault();
-    if (e.repeat) return; // our own interval drives continued holding, not OS key-repeat
-    const direction = e.key === 'ArrowUp' ? 1 : -1;
-    editorAdjustValue(el, direction, 1);
-    const startTime = Date.now();
-    editorSpin = {
-      interval: setInterval(() => {
-        const heldMs = Date.now() - startTime;
-        const magnitude = Math.min(50, 1 + Math.floor(heldMs / 250));
-        editorAdjustValue(el, direction, magnitude);
-      }, 80),
-    };
-  }
-});
-
-document.addEventListener('keyup', (e) => {
-  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') stopEditorSpin();
-});
 
 // -- Settings screen ------------------------------------------------------------
 
@@ -681,7 +541,6 @@ document.getElementById('custom-back-btn').addEventListener('click', goHome);
 document.getElementById('new-profile-btn').addEventListener('click', openNewProfileEditor);
 document.getElementById('settings-btn').addEventListener('click', () => {
   showScreen('screen-settings');
-  refreshKeyHints();
   refreshBridgeStatus();
 });
 

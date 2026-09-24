@@ -143,12 +143,10 @@ confirmed this is consistent (same result after a fresh unplug/replug, not
 a one-off fluke). This is a board-firmware problem, not a Linux driver gap:
 check for a BOOT/ISP jumper or button on the touch controller board, or
 treat it as needing a replacement/reflash from the seller. Until resolved,
-`assets/keyboard.js`'s number/letter key-hint system + arrow-key grid
-navigation in the profile editor (`assets/app.js`) are the interim input
-method (see
-`docs/architecture.md`) — genuinely useful as a permanent accessibility
-fallback too, not just a workaround, so there's no strong reason to rip it
-out once touch works.
+a USB mouse works as the pointer, and `assets/osk.js` provides an on-screen
+QWERTY keyboard (text fields) and numeric keypad (number fields) that pop up
+when a field is focused — needed with touch too, since the kiosk has no
+OS-level virtual keyboard.
 
 ## Safety
 

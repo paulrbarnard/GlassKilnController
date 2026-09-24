@@ -88,6 +88,10 @@ textarea {
   overflow: hidden; /* a safety net, not the fix — see .diagram-wrap min-height */
 }
 
+body.osk-open .screen {
+  height: calc(100vh - var(--osk-h, 0px));
+}
+
 .screen.active {
   display: flex;
 }
@@ -382,32 +386,6 @@ table.segment-editor input {
   font-size: 15px;
 }
 
-/* -- Interim keyboard-hint badges (see keyboard.js) -- */
-
-.hintable {
-  position: relative;
-}
-
-.key-hint {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 5px;
-  border-radius: 7px;
-  background: var(--accent);
-  color: #1b1b1f;
-  font-weight: 700;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
-  pointer-events: none;
-  z-index: 5;
-}
-
 /* -- Compact "peak temp / hold" inline field, used in the MGF override row -- */
 
 .field-label {
@@ -470,4 +448,68 @@ table.segment-editor input {
   border-radius: 14px;
   padding: 10px;
   flex: 0 0 auto;
+}
+
+/* -- On-screen keyboard (osk.js) -- */
+
+#osk:not([hidden]) {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #0d0d0f;
+  border-top: 1px solid var(--border);
+}
+
+#osk .osk-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+#osk .osk-key {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  height: 54px;
+  font-size: 22px;
+  touch-action: manipulation;
+}
+
+#osk.numpad .osk-key {
+  height: 66px;
+  font-size: 28px;
+}
+
+#osk.numpad {
+  padding-left: 15%;
+  padding-right: 15%;
+}
+
+#osk .osk-space {
+  flex: 4 1 0;
+}
+
+#osk .osk-shift,
+#osk .osk-back,
+#osk .osk-clear {
+  flex: 1.5 1 0;
+}
+
+#osk .osk-done {
+  flex: 2 1 0;
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+  color: white;
+  font-weight: 600;
+}
+
+#osk .osk-key.on {
+  background: var(--accent);
+  color: #1b1b1f;
 }
