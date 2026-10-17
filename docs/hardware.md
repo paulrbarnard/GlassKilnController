@@ -97,15 +97,16 @@ autologin-session=xfce
 CONF
 
 # 2. Autostart Chromium in kiosk mode once that session starts. The panel
-# is mounted portrait, so rotate the output first (xrandr is a runtime-only
-# setting — it resets to landscape on every reconnect/reboot, hence doing
-# it here rather than once by hand).
+# is mounted landscape; the rotation is still set explicitly (xrandr is a
+# runtime-only setting, so a one-off change by hand doesn't survive a
+# reconnect/reboot). For a portrait mount use `--rotate left` instead —
+# assets/style.css switches to a 2-column grid automatically.
 mkdir -p ~/.config/autostart
 cat > ~/.config/autostart/glasskiln-kiosk.desktop <<'DESKTOP'
 [Desktop Entry]
 Type=Application
 Name=Glass Kiln Kiosk
-Exec=sh -c 'xrandr --output DP-1 --rotate left; xset s off; xset -dpms; chromium --kiosk --incognito --noerrdialogs --disable-infobars --disable-session-crashed-bubble http://localhost:7000'
+Exec=sh -c 'xrandr --output DP-1 --rotate normal; xset s off; xset -dpms; chromium --kiosk --incognito --noerrdialogs --disable-infobars --disable-session-crashed-bubble http://localhost:7000'
 X-GNOME-Autostart-enabled=true
 DESKTOP
 

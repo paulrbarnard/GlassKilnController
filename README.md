@@ -81,7 +81,10 @@ doesn't either — both documented there with what to use instead.
 ## Getting started
 
 **On the Uno Q**, via App Lab or `arduino-app-cli app start <path>` — no
-arguments needed, `python/main.py` finds everything by convention. The
+arguments needed, `python/main.py` finds everything by convention. From a
+dev machine, `scripts/deploy.sh` copies the repo to the board (ssh alias
+`steffi`; override with `HOST=`), restarts the app and sets it as the
+default app so it starts on boot, without touching on-board user profiles. The
 touchscreen (or any browser on the same network) reaches the UI at
 `http://<board-ip>:7000`.
 
