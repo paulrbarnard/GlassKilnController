@@ -96,20 +96,25 @@ autologin-user-timeout=0
 autologin-session=xfce
 CONF
 
-# 2. Autostart Chromium in kiosk mode once that session starts. The 7"
-# panel's native mode is 1024x600, but its EDID prefers 1920x1080, which
-# renders the UI at about half size, so the mode is forced here; the CSS
-# is sized for 1024x600. The panel
-# is mounted landscape; the rotation is still set explicitly (xrandr is a
-# runtime-only setting, so a one-off change by hand doesn't survive a
-# reconnect/reboot). For a portrait mount use `--rotate left` instead —
-# assets/style.css switches to a 2-column grid automatically.
+# 2. Autostart Chromium in kiosk mode once that session starts, via
+# scripts/kiosk.sh (deployed with the app). The app can take minutes to
+# come up after boot, so the browser opens scripts/kiosk-starting.html,
+# which polls /api/status and switches to the app once it answers;
+# pointing Chromium straight at localhost:7000 leaves it stuck on a
+# "can't reach this site" page. The 7" panel's native mode is 1024x600,
+# but its EDID prefers 1920x1080, which renders the UI at about half
+# size, so kiosk.sh forces the mode; the CSS is sized for 1024x600. The
+# panel is mounted landscape; the rotation is still set explicitly
+# (xrandr is a runtime-only setting, so a one-off change by hand doesn't
+# survive a reconnect/reboot). For a portrait mount use `--rotate left`
+# in kiosk.sh instead — assets/style.css switches to a 2-column grid
+# automatically.
 mkdir -p ~/.config/autostart
 cat > ~/.config/autostart/glasskiln-kiosk.desktop <<'DESKTOP'
 [Desktop Entry]
 Type=Application
 Name=Glass Kiln Kiosk
-Exec=sh -c 'xrandr --output DP-1 --mode 1024x600 --rotate normal; xset s off; xset -dpms; chromium --kiosk --incognito --noerrdialogs --disable-infobars --disable-session-crashed-bubble http://localhost:7000'
+Exec=sh /home/arduino/ArduinoApps/glass-kiln-controller/scripts/kiosk.sh
 X-GNOME-Autostart-enabled=true
 DESKTOP
 
@@ -131,8 +136,8 @@ cache survives a kiosk relaunch, so after redeploying updated
 version — confirmed the hard way during development. `xset s off`/`-dpms`
 stop the screen blanking, since a kiosk display going to sleep mid-firing
 defeats the point. To pick up a fresh deploy manually without a full
-reboot: `pkill -x chromium`, then re-run the `chromium --kiosk ...` line
-from a shell with `DISPLAY=:0` and `XAUTHORITY=/home/arduino/.Xauthority`
+reboot: `pkill -x chromium`, then re-run `scripts/kiosk.sh` from a shell
+with `DISPLAY=:0` and `XAUTHORITY=/home/arduino/.Xauthority`
 exported (that's what a real login session sets up for you automatically;
 an SSH shell doesn't have them by default).
 

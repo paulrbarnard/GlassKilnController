@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Glass Kiln Controller</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd;
+    font: 32px sans-serif; display: flex; align-items: center; justify-content: center; }
+  #elapsed { font-size: 20px; color: #888; margin-top: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div>
+  <div>Glass Kiln Controller is starting…</div>
+  <div id="elapsed"></div>
+</div>
+<script>
+  // Shown by scripts/kiosk.sh until the app's web server answers. A no-cors
+  // fetch can't read the reply, but it only resolves once the server responds.
+  const APP = "http://localhost:7000";
+  // performance.now() is monotonic; Date.now() jumps when NTP sets the clock at boot.
+  const started = performance.now();
+  async function poll() {
+    try {
+      await fetch(APP + "/api/status", { mode: "no-cors", cache: "no-store" });
+      location.replace(APP);
+      return;
+    } catch (e) {}
+    const s = Math.round((performance.now() - started) / 1000);
+    document.getElementById("elapsed").textContent = "waiting " + s + " s";
+    setTimeout(poll, 2000);
+  }
+  poll();
+</script>
+</body>
+</html>
