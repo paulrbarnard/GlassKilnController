@@ -96,7 +96,10 @@ autologin-user-timeout=0
 autologin-session=xfce
 CONF
 
-# 2. Autostart Chromium in kiosk mode once that session starts. The panel
+# 2. Autostart Chromium in kiosk mode once that session starts. The 7"
+# panel's native mode is 1024x600, but its EDID prefers 1920x1080, which
+# renders the UI at about half size, so the mode is forced here; the CSS
+# is sized for 1024x600. The panel
 # is mounted landscape; the rotation is still set explicitly (xrandr is a
 # runtime-only setting, so a one-off change by hand doesn't survive a
 # reconnect/reboot). For a portrait mount use `--rotate left` instead —
@@ -106,7 +109,7 @@ cat > ~/.config/autostart/glasskiln-kiosk.desktop <<'DESKTOP'
 [Desktop Entry]
 Type=Application
 Name=Glass Kiln Kiosk
-Exec=sh -c 'xrandr --output DP-1 --rotate normal; xset s off; xset -dpms; chromium --kiosk --incognito --noerrdialogs --disable-infobars --disable-session-crashed-bubble http://localhost:7000'
+Exec=sh -c 'xrandr --output DP-1 --mode 1024x600 --rotate normal; xset s off; xset -dpms; chromium --kiosk --incognito --noerrdialogs --disable-infobars --disable-session-crashed-bubble http://localhost:7000'
 X-GNOME-Autostart-enabled=true
 DESKTOP
 
