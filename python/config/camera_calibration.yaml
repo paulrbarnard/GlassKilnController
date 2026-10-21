@@ -1,18 +1,28 @@
 # Camera ROI + per-digit boxes for reading the GM LT 7-segment display.
 # See docs/hardware.md "Camera" calibration procedure and
-# kiln/vision.py RealVision._load_calibration. Placeholder/example shape —
-# not measured against real hardware yet.
+# kiln/vision.py RealVision._load_calibration.
+#
+# Measured 2026-10-21 on Steffi from a 1632x1232 frame of "IdLE." (Pi
+# Camera V2, upright, 105 mm from the display). Re-measure if the camera
+# mount moves.
+#
+# roi is in frame pixels; digit_boxes are relative to roi, left to right.
+# Digits are 186 px tall on a 160 px pitch and lean right by ~7 degrees
+# (a vertical segment's bottom sits ~12 px left of its top), so each box is
+# wider than an upright digit would need. Each box also takes in that
+# digit's decimal point at its bottom right. roi stops above the faint
+# reflections of the digits on the panel below the display (y ~800).
+# The first character of IdLE lights the right-hand segments (b, c), so it
+# reads as the 7-segment pattern for "1".
 
 roi:
-  x: 0
-  y: 0
-  w: 320
-  h: 120
+  x: 530
+  y: 545
+  w: 660
+  h: 220
 
-digit_boxes: []
-# Example once measured:
-# digit_boxes:
-#   - {x: 10, y: 10, w: 40, h: 80}
-#   - {x: 60, y: 10, w: 40, h: 80}
-#   - {x: 110, y: 10, w: 40, h: 80}
-#   - {x: 160, y: 10, w: 40, h: 80}
+digit_boxes:
+  - {x: 16, y: 14, w: 145, h: 192}
+  - {x: 176, y: 14, w: 145, h: 192}
+  - {x: 336, y: 14, w: 145, h: 192}
+  - {x: 496, y: 14, w: 145, h: 192}
