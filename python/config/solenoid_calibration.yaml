@@ -6,6 +6,11 @@
 #              as low as still holds the button reliably, to keep the coil
 #              cool on the 4s "hold" presses
 #
+# Bench test 2026-10-21 (ENTER solenoid, 12V, unmounted, no button load):
+# kick 100 gives a good hard pull-in; a 4s hold held at duty 30 and dropped
+# out at 20. 100 leaves margin for the button's spring; re-test once the
+# solenoids are mounted over the real buttons.
+#
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
 
