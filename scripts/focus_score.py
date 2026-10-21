@@ -16,6 +16,9 @@ if frame is None:
     print("no frame")
     sys.exit(1)
 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+# Score at a fixed scale so the number doesn't depend on capture size.
+scale = 1000 / gray.shape[1]
+gray = cv2.resize(gray, (1000, round(gray.shape[0] * scale)))
 
 # The digits are by far the brightest thing in view: take everything above
 # half the peak brightness, then pad its bounding box so the edges count.
@@ -29,8 +32,13 @@ pad = max(w, h) // 10
 x0, y0 = max(x - pad, 0), max(y - pad, 0)
 roi = gray[y0:y + h + pad, x0:x + w + pad].astype(np.float64)
 
-# Variance of the Laplacian (edge strength), divided by brightness squared
-# so the auto-exposure drifting between frames doesn't move the score.
-lap = cv2.Laplacian(roi, cv2.CV_64F)
-score = lap.var() / max(roi.mean(), 1.0) ** 2 * 100
-print(f"{score:7.1f}  digits {w}x{h}px  ({100 * w / gray.shape[1]:.0f}% of width)")
+# Stretch the region to its own contrast range, so exposure changes don't
+# move the score, and blur lightly so sensor noise doesn't count as detail.
+# The score is the strength of the sharpest edges (99th percentile of the
+# gradient). A first version used Laplacian variance over mean brightness;
+# that ranked a dim, blurred frame above a bright, sharp one.
+lo, hi = np.percentile(roi, 1), np.percentile(roi, 99.5)
+norm = cv2.GaussianBlur(np.clip((roi - lo) / max(hi - lo, 1.0), 0, 1), (3, 3), 0)
+grad = np.hypot(cv2.Sobel(norm, cv2.CV_64F, 1, 0), cv2.Sobel(norm, cv2.CV_64F, 0, 1))
+score = np.percentile(grad, 99) * 100
+print(f"{score:7.1f}  digits {round(w / scale)}x{round(h / scale)}px  ({w / 10:.0f}% of width)")
