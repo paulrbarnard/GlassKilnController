@@ -22,3 +22,7 @@ sketch/build/
 # numbers):
 # python/config/solenoid_calibration.yaml
 # python/config/camera_calibration.yaml
+
+# Reference frames saved on the board by scripts/read_display.py --save;
+# copy the ones worth keeping into python/tests/fixtures/ instead.
+reference/

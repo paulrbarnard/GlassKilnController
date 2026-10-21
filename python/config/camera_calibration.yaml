@@ -26,3 +26,26 @@ digit_boxes:
   - {x: 176, y: 14, w: 145, h: 192}
   - {x: 336, y: 14, w: 145, h: 192}
   - {x: 496, y: 14, w: 145, h: 192}
+
+# Centre of each segment, and of the decimal point, relative to a digit
+# box (the same in every box). Measured from the lit segments of "IdLE."
+# (E gives a, d, e, f, g; d and 1 give b and c). Each is sampled as an
+# 11x11 px square (sample_half: 5), well inside the ~23 px thick segments.
+#   _a_
+#  f   b
+#   _g_
+#  e   c
+#   _d_  .dp
+segment_points:
+  a: [75, 12]
+  b: [112, 52]
+  c: [101, 144]
+  d: [54, 174]
+  e: [15, 144]
+  f: [27, 52]
+  g: [64, 93]
+  dp: [127, 174]
+sample_half: 5
+# Red level (0-255) the brightest segment must reach for the display to
+# count as on; below it the display reads as blank.
+min_lit: 80

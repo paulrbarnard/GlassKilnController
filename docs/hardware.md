@@ -79,13 +79,35 @@ glare/reflection). Needs:
 - A view that doesn't require the overlay panel's own body to cast a
   shadow on the display.
 
-Calibration procedure (see `python/kiln/vision.py` `TODO`s):
-1. Capture a reference frame per known display string (use the manual's
-   vocabulary in `docs/controller_protocol.md` as the checklist — every
-   token that can appear should have at least one reference sample).
-2. Determine per-digit ROI boxes (7-segment displays are fixed-pitch; once
-   framing is fixed this is a one-time measurement).
-   Persist ROI boxes + reference thresholds in `camera_calibration.yaml`.
+The build uses a Pi Camera V2 (IMX219) on the Media Carrier's camera0, upright,
+105 mm from the display, with the digits about a third of the frame width.
+Its fixed-focus lens is set for about 1 m to infinity out of the box, so
+it has to be refocused for this distance: turn the lens with the camera
+held at the working distance, using `scripts/focus.sh` to score each step.
+That script only compares scores on the same display text. The GM LT
+alternates `IdLE.` with the kiln temperature, and a different text gives a
+different score. When the score and the picture disagree, trust the picture.
+
+Calibration (`python/config/camera_calibration.yaml`, measured 2026-10-21):
+1. With the camera fixed, take a frame of a display with every digit
+   position lit. `IdLE.` works: between them, its four characters light
+   every segment (`scripts/read_display.sh --save IdLE`).
+2. Measure `roi` (the display, kept clear of the reflections on the panel
+   below it), the four `digit_boxes` (160 px pitch; the digits lean right
+   about 7 degrees, so the boxes are wider than the upright digits), and
+   the centre of each segment within a box (`segment_points`).
+3. Check with `scripts/read_display.sh`. It prints the decoded text and the
+   red level at every sample point, and opens a picture with each point
+   marked green (lit) or red (unlit).
+4. Capture a reference frame for every display token that can appear (the
+   vocabulary in `docs/controller_protocol.md` is the checklist):
+   `scripts/read_display.sh --save <token>` for each, then
+   `scripts/read_display.sh --pull` to copy them into
+   `python/tests/fixtures/` and add them to `python/tests/test_vision.py`.
+   These pin down the glyphs that differ between displays (M, N, G, D and
+   the degree sign). Until then, those entries in `GLYPHS` are guesses.
+
+Recalibrate if the camera mount moves: every box and point is in pixels.
 
 ## Touchscreen
 
