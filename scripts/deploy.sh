@@ -33,7 +33,9 @@ COPYFILE_DISABLE=1 tar -C "$ROOT" -czf - \
 
 if [[ $restart == 1 ]]; then
   echo "==> restarting app (compiles and flashes the sketch too)"
-  ssh "$HOST" "arduino-app-cli app restart ~/$REMOTE_DIR"
+  # Not `app restart`: on Steffi it stops the app, then fails with "Is
+  # Running" and leaves it stopped. Stop and start separately instead.
+  ssh "$HOST" "arduino-app-cli app stop ~/$REMOTE_DIR || true; arduino-app-cli app start ~/$REMOTE_DIR"
   ssh "$HOST" "arduino-app-cli properties set default ~/$REMOTE_DIR"
 fi
 
