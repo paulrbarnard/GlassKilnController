@@ -27,7 +27,7 @@ def test_select_mode_auto_when_already_showing_auto():
     sequencer, bridge = make_sequencer(["IdLE", "Auto"])
     sequencer.select_mode(Mode.AUTO)
     assert bridge.presses == [
-        (Key.ENTER, LONG_MS),  # goto_idle's 4s hold
+        (Key.ENTER, LONG_MS),  # goto_idle's long hold
         (Key.ENTER, SHORT_PRESS_MS),  # open mode menu
         (Key.ENTER, SHORT_PRESS_MS),  # select AUTO
     ]

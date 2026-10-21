@@ -30,9 +30,11 @@ class Key(Enum):
     DOWN = 2
 
 
-# Long-press ("hold") duration the manual calls out for all "hold 4 seconds"
-# actions: Start Over, unlock/relock Advanced level (p.8, p.10, p.18).
-LONG_PRESS_SECONDS = 4.0
+# Long-press ("hold") duration for the manual's "hold 4 seconds" actions:
+# Start Over, unlock/relock Advanced level (p.8, p.10, p.18). The
+# controller acts when it beeps, at about 4s, so hold for 5s to make sure
+# the release never lands just before the beep.
+LONG_PRESS_SECONDS = 5.0
 
 # Default short-press dwell used for a plain tap.
 SHORT_PRESS_MS = 150
