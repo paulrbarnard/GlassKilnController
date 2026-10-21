@@ -20,5 +20,5 @@ sketch/build/
 # template; a real build's actual measured values may be worth gitignoring
 # per-machine — uncomment if you'd rather not commit your specific rig's
 # numbers):
-# python/config/servo_calibration.yaml
+# python/config/solenoid_calibration.yaml
 # python/config/camera_calibration.yaml

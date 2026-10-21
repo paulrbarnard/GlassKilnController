@@ -10,47 +10,59 @@ display and 3 round buttons (ENTER, UP, DOWN) in a row underneath it. The
 overlay needs to:
 
 - Mount rigidly relative to the kiln's existing panel (button positions
-  must not drift relative to the servo actuators once calibrated).
+  must not drift relative to the solenoid actuators once calibrated).
 - Leave the existing panel's labels/display visible to a human, since a
   person should always be able to see what the kiln itself thinks is
   happening, not just what our UI says.
 - Not block ventilation or the kiln's own peephole/safety features.
 
-## Servo button actuators (x3)
+## Solenoid button actuators (x3)
 
-One per key: `ENTER`, `UP`, `DOWN`. Each is a small lever/plunger driven by
-a micro servo (e.g. SG90-class) that:
+One per key: `ENTER`, `UP`, `DOWN`. Each is a 12V mini push-pull solenoid
+(the build uses Amazon B0CRKS9M19) whose plunger sits over its button. They
+replaced the original SG90 micro servos in October 2026.
 
-- At rest, sits clear of the button (no contact, no accidental holds).
-- On command, presses the button for a controlled dwell time, then
-  retracts. Short press ≈ a quick tap; long press (4s "hold" actions) needs
-  the servo to hold the button down for the full duration.
-- Needs enough repeatable travel/force to reliably actuate the button
-  without over-driving it (these are the kiln's real controls — don't stall
-  the servo against the panel).
+- At rest the plunger is retracted and clear of the button (no contact,
+  no accidental holds). The solenoids are mounted on the front of the
+  controller box, which stays cool, so a PLA bracket is fine.
+- On command, the plunger presses the button for a controlled dwell, then
+  releases. Short press ≈ a quick tap; long press (the 4s "hold" actions)
+  holds the button for the full duration.
 
-**Driven directly off the Uno Q's MCU pins — no external servo driver
-board needed.** This wasn't obvious going in: this board's Arduino-level
-PWM pins are hardware-fixed at 500Hz in its devicetree (checked directly:
-`arduino_uno_q_stm32u585xx.overlay`, every `pwms` entry is `PWM_HZ(500)`),
-which is why the classic `Servo` library doesn't even compile for it — a
-hobby servo needs 50Hz and that period isn't reachable through
-`analogWrite()` here. The board's devicetree does provision a *separate*
-hardware counter timer for exactly this purpose (`counter_servo`, aka
-`TIM2`), and the `RoboServo` library (confirmed: compiles and links against
-`arduino:zephyr:unoq`, `library.properties` explicitly lists both `zephyr`
-and "UNO Q") drives the 3 servos off that counter with the same
-`attach()`/`write()` API as classic `Servo`. See `sketch/sketch.ino` and
-`sketch/sketch.yaml` (RoboServo has to be explicitly declared in the
-sketch.yaml profile's `libraries:` list — it does not auto-resolve from the
-`#include` alone, unlike `Arduino_RouterBridge`).
+**Driver:** a MonkMakes **Mosfetti** 4-channel MOSFET board (3.3V logic,
+flyback diodes on board, 2A per channel, 2.5A total, 16V max) with a
+separate 12V supply. Wiring:
 
-Calibration values (per-servo neutral/press angle, press dwell ms) live in
-`python/config/servo_calibration.yaml`. Do this calibration with the kiln
-**unpowered** first (verify mechanical actuation), then with the controller
-powered but kiln not firing (verify the right button is actually being
-pressed, using View Segment/Review to sanity check against a known key
-sequence).
+| Key | UNO Q pin | Mosfetti channel |
+|---|---|---|
+| ENTER | D9 | 1 |
+| UP | D10 | 2 |
+| DOWN | D11 | 3 |
+| (spare) | D12 | 4 |
+
+The fourth channel is wired to D12 so the harness is reusable, but nothing
+uses it: the sketch holds D12 LOW. UNO Q GND, Mosfetti GND and the 12V supply's
+negative must all be common, or the gates have no reference. Each solenoid
+goes between its channel output and +12V.
+
+**Drive scheme** (`sketch/sketch.ino`): every press starts with a short
+full-power kick to pull the plunger in, then drops to a PWM hold duty that
+keeps it there without overheating the coil. This board's PWM pins are
+hardware-fixed at 500Hz, which suits a solenoid fine. Only one solenoid is
+ever energised: all outputs are switched off before and after each press,
+and a press longer than 8s is rejected. All gates are driven LOW in
+`setup()` so nothing fires while the Bridge comes up. Before the sketch is
+running (power-up, reflash) the pins aren't driven, so check that the
+Mosfetti holds its gates off when its inputs float, or add a pull-down per
+channel.
+
+Drive settings (per-key `kick_ms` and `hold_duty`) live in
+`python/config/solenoid_calibration.yaml` and are pushed to the sketch at
+startup. Tune them with the controller **unpowered** first (the plunger
+pulls in reliably on the kick, and the hold duty is the lowest that still
+keeps the button down), then with the controller powered but the kiln not
+firing (verify the right button is actually being pressed, using View
+Segment/Review to sanity check against a known key sequence).
 
 ## Camera
 

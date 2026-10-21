@@ -12,7 +12,7 @@ This project sits physically on top of the kiln's existing control panel and:
 - Reads the GM LT's 7-segment display via a camera pointed at it, so it always
   knows the controller's actual state (mode, segment, temperature, errors).
 - Presses the GM LT's three physical buttons (ENTER/START/STOP, UP, DOWN)
-  with three servo-driven actuators, replaying the exact key sequences from
+  with three solenoid actuators, replaying the exact key sequences from
   the GM LT manual to select or build the desired program.
 
 In short: the human picks a profile on a touchscreen; the Uno Q "operates"
@@ -30,8 +30,9 @@ land correctly via the camera before advancing.
   `docs/architecture.md`).
 - **Camera** — framed on the GM LT's red 7-segment display, used to read
   controller state (`python/kiln/vision.py`).
-- **3x servo button actuators** — one per GM LT key (ENTER, UP, DOWN),
-  mounted so each can press-and-release its button on command (`sketch/`).
+- **3x 12V push-pull solenoids** — one per GM LT key (ENTER, UP, DOWN),
+  mounted so each can press-and-release its button on command, driven from
+  D9-D11 through a MonkMakes Mosfetti MOSFET board (`sketch/`).
 
 ## Why not talk to the kiln electrically instead?
 
@@ -46,14 +47,14 @@ this project is an "extra pair of hands," not a replacement brain.
 
 ```
 docs/                       Reference material (protocol, hardware, architecture)
-sketch/                     Arduino sketch (MCU side): drives the 3 servos (RoboServo)
+sketch/                     Arduino sketch (MCU side): drives the 3 solenoids
 python/                     App Lab Python app (Linux/MPU side)
   kiln/                     Domain logic: protocol tables, bridge client,
                              vision (7-seg reader), profiles, sequencer
   web/                      REST/WebSocket route wiring (web_ui brick), talks to kiln/ only
   profiles/library/         Built-in profiles transcribed from the GM LT manual
   profiles/user/            User-created custom Ramp & Hold profiles
-  config/                   Servo/camera calibration (machine-specific, not
+  config/                   Solenoid/camera calibration (machine-specific, not
                              generic defaults — see docs/hardware.md)
   tests/                    Unit tests for kiln/ and web/ logic (no hardware needed)
 assets/                     Static frontend served by the web_ui brick
@@ -70,8 +71,8 @@ sketch compiles and flashes, the Python side reaches it over the Bridge RPC
 (`ping`/`press_button` both confirmed live), and the web UI serves real
 profile data over its REST API. What's still pending the physical build:
 camera-based 7-segment reading (`RealVision` is a deliberate stub — see
-`TODO(hardware)` in `python/kiln/vision.py`) and servo mounting/calibration
-(`python/config/servo_calibration.yaml`). See `docs/architecture.md` for
+`TODO(hardware)` in `python/kiln/vision.py`) and solenoid mounting/tuning
+(`python/config/solenoid_calibration.yaml`). See `docs/architecture.md` for
 the full trail of what was confirmed on real hardware vs. still assumed,
 including two dead ends worth knowing about before you touch this again:
 PySide6 doesn't work in the App Lab container (missing graphics libs), and
@@ -110,4 +111,4 @@ of `main.py`.
 - `docs/architecture.md` — how the pieces (sketch, bridge, vision, sequencer,
   UI) fit together and the state machine that ties reality (camera) to intent
   (profile).
-- `docs/hardware.md` — servo/camera mounting notes and calibration procedure.
+- `docs/hardware.md` — solenoid/camera mounting notes, wiring and calibration procedure.

@@ -2,33 +2,29 @@
 //
 // Deliberately does one thing: on request from the Linux/Python side, press
 // one of the GM LT controller's three physical buttons (ENTER, UP, DOWN)
-// with a servo, hold it for the requested duration, then release. All
-// sequencing/decision logic lives in python/kiln/sequencer.py — this sketch
-// has no idea what a "profile" or a "GlassFire program" is, and that's by
-// design (see docs/architecture.md).
+// with a 12V push-pull solenoid, hold it for the requested duration, then
+// release. All sequencing/decision logic lives in python/kiln/sequencer.py
+// — this sketch has no idea what a "profile" or a "GlassFire program" is,
+// and that's by design (see docs/architecture.md).
 //
-// Bridge API used here (arduino-libraries/Arduino_RouterBridge) and the
-// servo library choice below are both CONFIRMED by compiling and running on
-// real hardware (an Uno Q named "Steffi"), not just documentation:
+// Bridge API used here (arduino-libraries/Arduino_RouterBridge) is
+// CONFIRMED by compiling and running on real hardware (an Uno Q named
+// "Steffi"), not just documentation:
 //   Bridge.begin()
 //   Bridge.provide_safe(name, fn)   // fn runs on the dedicated hardware
 //                                    // update thread; use for anything
-//                                    // touching servos/pins.
+//                                    // touching pins.
 //
 // Python calls these by name via arduino.app_utils Bridge.call(...).result()
 // — see python/kiln/bridge.py.
 //
-// IMPORTANT: this board's Arduino-level PWM pins (D2-D13, D20/D21) are
-// hardware-fixed at 500Hz in its devicetree (see docs/hardware.md) — a
-// standard hobby servo needs 50Hz, so the classic `Servo` library does not
-// exist for this board's `arduino:zephyr` core at all (confirmed: it fails
-// to compile, "Servo.h: No such file or directory", because no version of
-// it is offered as a candidate for this FQBN). RoboServo instead bit-bangs
-// the signal off a *separate*, purpose-provisioned hardware counter timer
-// (devicetree node `counter_servo`) rather than the PWM peripheral, which
-// is exactly why it works here. Same attach()/write() API as classic Servo.
+// Drive: each solenoid hangs off one channel of a MonkMakes Mosfetti
+// (3.3V-logic MOSFET board with flyback diodes, separate 12V supply; see
+// docs/hardware.md). A press is a short full-power kick to pull the plunger
+// in, then a reduced PWM duty to hold it there without cooking the coil.
+// This board's PWM pins (D2-D13, D20/D21) are hardware-fixed at 500Hz,
+// which is fine for a solenoid hold.
 #include <Arduino_RouterBridge.h>
-#include <RoboServo.h>
 
 // ---- Keys ------------------------------------------------------------
 // Must match kiln.protocol.Key values (ENTER=0, UP=1, DOWN=2) in
@@ -40,59 +36,78 @@ enum Key : uint8_t {
   KEY_COUNT = 3,
 };
 
-// ---- Pin / angle configuration ----------------------------------------
-// TODO(hardware): confirm real pin numbers once the actuators are wired,
-// and tune REST/PRESS angles per docs/hardware.md's calibration procedure.
-// These can also be nudged at runtime via calibrate_servo() below, so the
-// physical build doesn't require a reflash to dial in.
-const uint8_t SERVO_PIN[KEY_COUNT] = {9, 10, 11};
+// ---- Pin / drive configuration ------------------------------------------
+// Mosfetti gate inputs. Tune kick/hold per docs/hardware.md; they can also
+// be set at runtime via configure_solenoid() below, so dialling in the
+// physical build doesn't need a reflash.
+const uint8_t SOLENOID_PIN[KEY_COUNT] = {9, 10, 11};
+// Mosfetti channel 4 is wired to D12 but unused; held LOW so it stays off.
+const uint8_t SPARE_PIN = 12;
 
-// Angle (degrees) with the actuator clear of the button.
-int rest_angle[KEY_COUNT] = {90, 90, 90};
-// Angle (degrees) that fully depresses the button without stalling the
-// servo against the panel.
-int press_angle[KEY_COUNT] = {60, 60, 60};
+// Full-power pull-in time (ms) at the start of every press.
+int kick_ms[KEY_COUNT] = {100, 100, 100};
+// PWM duty (0-255) used to hold the plunger in after the kick.
+int hold_duty[KEY_COUNT] = {100, 100, 100};
 
-RoboServo servos[KEY_COUNT];
+// Hard cap on a single press. The longest real press is the manual's ~4s
+// "hold until beep"; anything longer is a bug, not a request.
+const int MAX_PRESS_MS = 8000;
+const int DEFAULT_PRESS_MS = 150;  // a short, deliberate tap
 
 static bool key_is_valid(int which) {
   return which >= 0 && which < KEY_COUNT;
 }
 
+static void all_off() {
+  for (uint8_t i = 0; i < KEY_COUNT; i++) {
+    analogWrite(SOLENOID_PIN[i], 0);
+  }
+}
+
 // ---- Bridge-exposed functions ------------------------------------------
 
 // Press `which` key (see Key enum) and hold it for hold_ms before
-// releasing. Returns true on success, false on an invalid key index.
-// Blocking for the duration of the press+release — that's intentional,
-// it's a physical action with a real duration; the Python side calls this
-// as a blocking RPC and treats the return as "the mechanical press is
-// done" (NOT as confirmation the controller reacted the way we wanted —
-// that's what vision.py is for).
+// releasing. Returns true on success, false on an invalid key index or a
+// hold longer than MAX_PRESS_MS. Blocking for the duration of the press —
+// that's intentional, it's a physical action with a real duration; the
+// Python side calls this as a blocking RPC and treats the return as "the
+// mechanical press is done" (NOT as confirmation the controller reacted
+// the way we wanted — that's what vision.py is for).
+//
+// Only one solenoid is ever energised: everything is switched off before
+// a press starts and again when it ends.
 bool press_button(int which, int hold_ms) {
-  if (!key_is_valid(which)) {
+  if (!key_is_valid(which) || hold_ms > MAX_PRESS_MS) {
     return false;
   }
-  if (hold_ms < 0) {
-    hold_ms = 0;
+  if (hold_ms <= 0) {
+    hold_ms = DEFAULT_PRESS_MS;
   }
 
-  servos[which].write(press_angle[which]);
-  delay(hold_ms > 0 ? hold_ms : 150);  // default: a short, deliberate tap
-  servos[which].write(rest_angle[which]);
+  const uint8_t pin = SOLENOID_PIN[which];
+  all_off();
+  analogWrite(pin, 255);
+  if (hold_ms <= kick_ms[which]) {
+    delay(hold_ms);
+  } else {
+    delay(kick_ms[which]);
+    analogWrite(pin, hold_duty[which]);
+    delay(hold_ms - kick_ms[which]);
+  }
+  all_off();
   return true;
 }
 
-// Runtime calibration hook so servo angles can be tuned from the Python
-// side (e.g. a Settings screen) without reflashing the sketch. Values are
-// NOT persisted across power cycles here — python/config/servo_calibration.yaml
-// is the durable source of truth and should re-push these on every startup.
-bool calibrate_servo(int which, int rest_deg, int press_deg) {
-  if (!key_is_valid(which)) {
+// Runtime tuning hook so kick/hold can be adjusted from the Python side
+// without reflashing the sketch. Values are NOT persisted across power
+// cycles here — python/config/solenoid_calibration.yaml is the durable
+// source of truth and is re-pushed on every startup (main.py).
+bool configure_solenoid(int which, int kick, int duty) {
+  if (!key_is_valid(which) || kick < 0 || kick > 500 || duty < 0 || duty > 255) {
     return false;
   }
-  rest_angle[which] = rest_deg;
-  press_angle[which] = press_deg;
-  servos[which].write(rest_angle[which]);
+  kick_ms[which] = kick;
+  hold_duty[which] = duty;
   return true;
 }
 
@@ -103,14 +118,19 @@ bool ping() {
 }
 
 void setup() {
+  // Drive every gate LOW before anything else, so no solenoid fires while
+  // the Bridge comes up.
   for (uint8_t i = 0; i < KEY_COUNT; i++) {
-    servos[i].attach(SERVO_PIN[i]);
-    servos[i].write(rest_angle[i]);
+    pinMode(SOLENOID_PIN[i], OUTPUT);
+    digitalWrite(SOLENOID_PIN[i], LOW);
   }
+  pinMode(SPARE_PIN, OUTPUT);
+  digitalWrite(SPARE_PIN, LOW);
+  all_off();
 
   Bridge.begin();
   Bridge.provide_safe("press_button", press_button);
-  Bridge.provide_safe("calibrate_servo", calibrate_servo);
+  Bridge.provide_safe("configure_solenoid", configure_solenoid);
   Bridge.provide_safe("ping", ping);
 }
 

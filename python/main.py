@@ -57,22 +57,22 @@ def build_bridge(use_mock: bool):
         bridge = MockBridge()
     else:
         bridge = RealBridge()
-        _push_servo_calibration(bridge)
+        _push_solenoid_calibration(bridge)
     return bridge
 
 
-def _push_servo_calibration(bridge) -> None:
-    """Push python/config/servo_calibration.yaml to the sketch at startup so
-    the mechanical calibration lives in one editable file, not hardcoded
-    twice (see sketch/sketch.ino calibrate_servo)."""
+def _push_solenoid_calibration(bridge) -> None:
+    """Push python/config/solenoid_calibration.yaml to the sketch at startup
+    so the drive settings live in one editable file, not hardcoded twice
+    (see sketch/sketch.ino configure_solenoid)."""
 
     import yaml
 
     from kiln.protocol import Key
 
-    path = CONFIG_DIR / "servo_calibration.yaml"
+    path = CONFIG_DIR / "solenoid_calibration.yaml"
     if not path.exists():
-        logging.warning("no servo_calibration.yaml found at %s; using sketch defaults", path)
+        logging.warning("no solenoid_calibration.yaml found at %s; using sketch defaults", path)
         return
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
@@ -81,7 +81,7 @@ def _push_servo_calibration(bridge) -> None:
         cal = data.get(name)
         if not cal:
             continue
-        bridge.calibrate(key, cal["rest_deg"], cal["press_deg"])
+        bridge.configure(key, cal["kick_ms"], cal["hold_duty"])
 
 
 def build_vision(use_mock: bool, mock_script: str):

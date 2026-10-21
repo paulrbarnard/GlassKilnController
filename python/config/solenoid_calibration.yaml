@@ -1,0 +1,22 @@
+# Per-solenoid drive settings — see docs/hardware.md for tuning. Starting
+# values; check them against the real build before trusting a press.
+#
+#   kick_ms    full-power pull-in time at the start of every press (0-500)
+#   hold_duty  PWM duty (0-255) that holds the plunger in after the kick;
+#              as low as still holds the button reliably, to keep the coil
+#              cool on the 4s "hold" presses
+#
+# Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
+# (main.py) so the drive settings live in one place, not hardcoded twice.
+
+enter:
+  kick_ms: 100
+  hold_duty: 100
+
+up:
+  kick_ms: 100
+  hold_duty: 100
+
+down:
+  kick_ms: 100
+  hold_duty: 100

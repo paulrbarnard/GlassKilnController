@@ -23,7 +23,7 @@ each brick needs bind-mounted:
 ```
 app.yaml            # name, icon, ports, bricks: [arduino:web_ui]
 sketch/
-  sketch.ino         # MCU: owns the 3 servos (RoboServo), nothing else
+  sketch.ino         # MCU: owns the 3 solenoids, nothing else
   sketch.yaml         # arduino-cli sketch project file (platform + libraries)
 python/
   main.py             # MPU: brings up Bridge + WebUI, registers routes
@@ -37,8 +37,8 @@ assets/               # static frontend served by the web_ui brick
 
 **Everything that decides what to do lives in Python.** The sketch is
 deliberately dumb: it exposes `press_button(which, hold_ms)`,
-`calibrate_servo(which, rest, press)`, and `ping()`, and does nothing else.
-This keeps the real-time side trivial to verify (three servos, three
+`configure_solenoid(which, kick_ms, hold_duty)`, and `ping()`, and does
+nothing else. This keeps the real-time side trivial to verify (three solenoids, three
 functions) and keeps all the interesting logic — protocol sequencing,
 vision, profile authoring — in Python where it's easier to test, version,
 and iterate without re-flashing the MCU.
@@ -57,9 +57,9 @@ and iterate without re-flashing the MCU.
 │                                       │                 ┌────────────┐  button
 │                                       │ reads/writes    │   Bridge   │──presses─▶ sketch/
 │                                       ▼                 │   client   │  (RPC)     (STM32,
-│                                ┌────────────┐           └────────────┘   RoboServo
-│                                │  Profiles  │                  ▲          moves
-│                                │(JSON, lib+ │           ┌────────────┐    servo)
+│                                ┌────────────┐           └────────────┘   Mosfetti +
+│                                │  Profiles  │                  ▲          fires
+│                                │(JSON, lib+ │           ┌────────────┐ solenoid)
 │                                │  user)     │           │   Vision   │◀─frames─┐
 │                                └────────────┘           │ (7-seg OCR)│         │
 │                                                          └────────────┘      ┌────┐
@@ -78,11 +78,11 @@ and iterate without re-flashing the MCU.
   changes anything.
 
 - **`kiln/bridge.py`** — thin RPC client wrapping calls to the sketch's
-  `press_button`/`calibrate_servo`/`ping`. Confirmed on real hardware that
+  `press_button`/`configure_solenoid`/`ping`. Confirmed on real hardware that
   `arduino.app_utils.Bridge.call(name, *args)` on the Python side is
   **synchronous and returns the value directly** — unlike the sketch-side
   C++ `Bridge.call("name").result(var)` pattern, there's no `.result()`.
-  Also defines `MockBridge`, which logs presses instead of moving servos,
+  Also defines `MockBridge`, which logs presses instead of firing solenoids,
   for developing/testing off the kiln.
 
 - **`kiln/vision.py`** — camera capture + 7-segment decoding. Produces a
@@ -159,6 +159,10 @@ Confirmed on real hardware, in order:
    that dependency and imports cleanly — see `python/requirements.txt`.
 
 ## Servo PWM — a board-level constraint, not a library gap
+
+*Historical: the actuators are now solenoids driven by plain
+`analogWrite()` (500Hz suits a solenoid hold), so none of this applies to
+the current sketch. Kept because it's still true of the board.*
 
 The sketch originally used the classic `Servo` library; it doesn't compile
 for this board's FQBN (`arduino:zephyr:unoq`) at all. Checked directly in

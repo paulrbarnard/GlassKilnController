@@ -1,7 +1,7 @@
 """Thin client over the Uno Q Bridge RPC connecting to sketch/sketch.ino.
 
 The sketch exposes exactly three RPC methods (see sketch/sketch.ino):
-``press_button(which, hold_ms)``, ``calibrate_servo(which, rest, press)``,
+``press_button(which, hold_ms)``, ``configure_solenoid(which, kick_ms, hold_duty)``,
 and ``ping()``. Everything else in this codebase should go through
 ``KilnBridge`` rather than touching ``arduino.app_utils`` directly, so the
 rest of the app doesn't care whether it's talking to real hardware or
@@ -14,7 +14,8 @@ explicit result fetch), ``arduino.app_utils.Bridge.call(name, *args)`` on
 the Python side is **synchronous and returns the value directly** — no
 ``.result()``. Confirmed via a real RPC round trip: ``Bridge.call("ping")``
 returned ``True`` and ``Bridge.call("press_button", 1, 150)`` returned
-``True`` and actually moved the servo.
+``True`` and actually moved the actuator (a servo at the time; the RPC
+is unchanged for the solenoids).
 """
 
 from __future__ import annotations
@@ -76,10 +77,10 @@ class RealBridge(KilnBridge):
         if not ok:
             raise BridgeError(f"press_button({key!r}, {hold_ms}) rejected by sketch")
 
-    def calibrate(self, key: Key, rest_deg: int, press_deg: int) -> None:
-        ok = self._bridge.call("calibrate_servo", key.value, rest_deg, press_deg)
+    def configure(self, key: Key, kick_ms: int, hold_duty: int) -> None:
+        ok = self._bridge.call("configure_solenoid", key.value, kick_ms, hold_duty)
         if not ok:
-            raise BridgeError(f"calibrate_servo({key!r}) rejected by sketch")
+            raise BridgeError(f"configure_solenoid({key!r}, {kick_ms}, {hold_duty}) rejected by sketch")
 
     def ping(self) -> bool:
         try:
@@ -90,7 +91,7 @@ class RealBridge(KilnBridge):
 
 @dataclass
 class MockBridge(KilnBridge):
-    """Records presses instead of moving servos — for UI/sequencer dev off
+    """Records presses instead of firing solenoids — for UI/sequencer dev off
     the kiln, and for unit tests that assert on the exact press sequence a
     profile produces (see python/tests/test_protocol.py).
     """

@@ -5,16 +5,12 @@
 # #include directives with no explicit entry needed — they're apparently
 # bundled/pre-associated with the arduino:zephyr board package.
 #
-# RoboServo does NOT auto-resolve the same way (confirmed: compiling
-# without it listed here fails to find RoboServo.h/Servo.h at all, even
-# with an explicitly installed library and an explicit --library flag —
-# profile-based builds only pull in what's declared here). Any other
-# library this sketch gains in the future will likely need the same
-# explicit declaration.
+# Other libraries don't resolve that way: when this sketch drove servos,
+# RoboServo had to be listed under `libraries:` here or the build couldn't
+# find its header (profile-based builds only pull in what's declared). Any
+# library this sketch gains in the future will likely need the same.
 profiles:
   default:
     platforms:
       - platform: arduino:zephyr
-    libraries:
-      - RoboServo (1.2.0)
 default_profile: default
