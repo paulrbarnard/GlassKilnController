@@ -1,9 +1,10 @@
 """Display decoding against a real camera frame, plus vocabulary matching.
 
 fixtures/idle_roi.png is the roi crop of a 1632x1232 frame of "IdLE." taken
-on Steffi on 2026-10-21 (Pi Camera V2, 105 mm), with
-config/camera_calibration.yaml as measured from that frame. Add a fixture
-per reference frame as they're captured (scripts/read_display.py --save).
+with `cam` on Steffi on 2026-10-21 (Pi Camera V2, 105 mm), with
+config/camera_calibration.yaml as measured from that frame. The live_*
+fixtures came through RealVision's own capture pipeline (scripts/step.py).
+Add a fixture per reference frame as they're captured.
 """
 
 from pathlib import Path
@@ -36,6 +37,43 @@ def test_idle_frame_decodes():
     text = decode_roi(_fixture("idle_roi.png"), CAL)
     assert text == "1dLE."
     assert build_controller_state(text).message is DisplayMessage.IDLE
+
+
+@pytest.mark.parametrize(
+    "fixture, text",
+    [
+        # Live frames through RealVision's own pipeline, 2026-10-22.
+        ("live_idle_roi.png", "1dLE."),
+        ("live_18_roi.png", "  18."),
+        # This display draws 9 without the bottom segment.
+        ("live_19_roi.png", "  19."),
+    ],
+)
+def test_live_frames_decode(fixture, text):
+    assert decode_roi(_fixture(fixture), CAL) == text
+
+
+@pytest.mark.parametrize(
+    "fixture, text, message, segment, number",
+    [
+        # DOWN (Review) from IdLE, 2026-10-22: last program was PRO slot 5.
+        ("review_pro_roi.png", "Pro .", DisplayMessage.PRO, None, None),
+        ("review_slot5_roi.png", "   5.", None, None, 5),
+        # SEG: G is drawn like 6 on this display.
+        ("review_seg_roi.png", "5E6 .", DisplayMessage.SEGMENT_COUNT, None, None),
+        ("review_ra1_roi.png", "rA 1.", DisplayMessage.RATE_PROMPT, 1, None),
+        ("review_0060_roi.png", "0060.", None, None, 60),
+        ("review_degc1_roi.png", "°C 1.", DisplayMessage.DEG_C, 1, None),
+        ("review_hld1_roi.png", "HLd1.", DisplayMessage.HOLD_PROMPT, 1, None),
+        ("review_12_00_roi.png", "12.00.", None, None, 12.0),
+        ("review_00_05_roi.png", "00.05.", None, None, 0.05),
+    ],
+)
+def test_review_frames(fixture, text, message, segment, number):
+    decoded = decode_roi(_fixture(fixture), CAL)
+    assert decoded == text
+    state = build_controller_state(decoded)
+    assert (state.message, state.segment_number, state.numeric_value) == (message, segment, number)
 
 
 def test_idle_frame_survives_exposure_change():

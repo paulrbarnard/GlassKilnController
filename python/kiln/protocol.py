@@ -61,7 +61,7 @@ class DisplayMessage(Enum):
     """
 
     DEG_F = "°F"
-    DEG_C = "°c"
+    DEG_C = "°C"  # uppercase C on the real display (verified 2026-10-22)
     AUTO = "Auto"
     PRO = "Pro"
     LOAD = "LoAd"
@@ -77,6 +77,7 @@ class DisplayMessage(Enum):
     RATE_PROMPT = "rA"
     READY = "rEdI"
     RESET = "rSEt"
+    SEGMENT_COUNT = "SEG"  # PRO: number of segments in the program
     SPEED_SLOW = "SLo"
     SPEED_MEDIUM = "MEd"
     SPEED_FAST = "FASt"

@@ -46,6 +46,6 @@ segment_points:
   g: [64, 93]
   dp: [127, 174]
 sample_half: 5
-# Red level (0-255) the brightest segment must reach for the display to
+# Green level (0-255) the brightest segment must reach for the display to
 # count as on; below it the display reads as blank.
 min_lit: 80

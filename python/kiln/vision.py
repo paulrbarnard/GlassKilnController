@@ -61,15 +61,17 @@ class ControllerState:
 # Which segments each character lights. Characters the GM LT draws the same
 # way share a pattern (I and 1, O and 0, S and 5), so the display is matched
 # against the vocabulary by pattern, never by letter (see classify_display).
-# Verified on the real display (Steffi, 2026-10-21): 1/I, d, L, E, 2, 3.
-# The rest are the usual 7-segment shapes; M, N, G, D and the degree sign
-# vary between displays and should be checked against reference frames.
+# Verified on the real display (Steffi, 2026-10-21/22): 0, 1/I, 2, 3, 5/S,
+# 8, A, C, d, E, G, L, o, P, r, the degree sign, and 9, which this display
+# draws without the bottom segment. G is drawn exactly like 6. The rest are
+# the usual 7-segment shapes; M, N, D, 6 and 7 vary between displays and
+# should be checked against reference frames.
 GLYPHS: dict[str, str] = {
     " ": "",
     "0": "abcdef", "1": "bc", "2": "abdeg", "3": "abcdg", "4": "bcfg",
-    "5": "acdfg", "6": "acdefg", "7": "abc", "8": "abcdefg", "9": "abcdfg",
+    "5": "acdfg", "6": "acdefg", "7": "abc", "8": "abcdefg", "9": "abcfg",
     "A": "abcefg", "b": "cdefg", "C": "adef", "c": "deg", "d": "bcdeg",
-    "D": "bcdeg", "E": "adefg", "F": "aefg", "G": "acdef", "H": "bcefg",
+    "D": "bcdeg", "E": "adefg", "F": "aefg", "G": "acdefg", "H": "bcefg",
     "h": "cefg", "I": "bc", "L": "def", "M": "abcef", "N": "abcef",
     "n": "ceg", "O": "abcdef", "o": "cdeg", "P": "abefg", "r": "eg",
     "S": "acdfg", "t": "defg", "U": "bcdef", "u": "cde", "-": "g",
@@ -105,10 +107,12 @@ def decode_digit(segments: tuple[bool, bool, bool, bool, bool, bool, bool]) -> s
 
 def _patterns(text: str) -> Optional[list[str]]:
     """``text`` as one segment pattern per character, ignoring decimal
-    points; None if it has a character with no known glyph."""
+    points and blanks; None if it has a character with no known glyph.
+    Blanks are dropped because the display pads a token from its number
+    ("rA 1", "°C 1")."""
 
     out = []
-    for char in text.replace(".", ""):
+    for char in text.replace(".", "").replace(" ", ""):
         if char not in GLYPHS:
             return None
         out.append(_pattern_key(GLYPHS[char]))
@@ -147,9 +151,15 @@ def classify_display(raw_text: str) -> tuple[Optional[DisplayMessage], Optional[
 def parse_numeric(raw_text: str) -> Optional[float]:
     """Best-effort parse of a plain numeric display (temperature, rate,
     hold H.MM, etc). Returns None if ``raw_text`` isn't purely numeric.
+
+    The decimal point after the last digit is lit on every reading on the
+    real display ("  19.", "12.00.", "Pro ."), so it's a status light, not
+    part of the number, and is dropped.
     """
 
     text = raw_text.strip().replace("°", "")
+    if text.endswith("."):
+        text = text[:-1]
     try:
         return float(text)
     except ValueError:
@@ -206,18 +216,20 @@ class DisplayCalibration:
 
 
 def sample_segments(roi_image, cal: DisplayCalibration) -> list[list[float]]:
-    """Mean red-channel level at each segment point (a..g, then dp) of each
-    digit. Red, because the LEDs are red/orange and the soft ISP leaves a
-    green cast on the dark panel around them."""
+    """Mean green-channel level at each segment point (a..g, then dp) of
+    each digit. Green separates lit from unlit best: the LEDs are bright
+    enough to saturate it, while the dark panel's colour cast differs
+    between capture paths (green through ``cam``, blue through the app's
+    pipeline) and lands in red or blue."""
 
-    red = roi_image[:, :, 2].astype("float32")
+    green = roi_image[:, :, 1].astype("float32")
     h = cal.sample_half
     levels = []
     for bx, by, _, _ in cal.digit_boxes:
         digit = []
         for px, py in (*cal.segment_points, cal.dp_point):
             x, y = bx + px, by + py
-            digit.append(float(red[y - h : y + h + 1, x - h : x + h + 1].mean()))
+            digit.append(float(green[y - h : y + h + 1, x - h : x + h + 1].mean()))
         levels.append(digit)
     return levels
 
@@ -368,12 +380,24 @@ class RealVision(KilnVision):
             self._idle_timer.start()
             return frame
 
+    # The GM LT alternates IdLE with the temperature about twice a second,
+    # so a frame often catches a change halfway ("1dU6." between IdLE and
+    # 15). read() only reports text that two consecutive frames agree on.
+    STABLE_TRIES = 6
+
     def read(self) -> ControllerState:
-        frame = self.read_frame()
-        if frame is None:
-            log.warning("RealVision: camera read failed")
-            return build_controller_state("?")
-        return build_controller_state(read_frame_text(frame, self.calibration))
+        previous = None
+        for _ in range(self.STABLE_TRIES):
+            frame = self.read_frame()
+            if frame is None:
+                log.warning("RealVision: camera read failed")
+                return build_controller_state("?")
+            text = read_frame_text(frame, self.calibration)
+            if text == previous:
+                return build_controller_state(text)
+            previous = text
+        log.debug("RealVision: no stable reading in %d frames", self.STABLE_TRIES)
+        return build_controller_state("?")
 
     def _release_locked(self) -> None:
         if self._capture is not None:

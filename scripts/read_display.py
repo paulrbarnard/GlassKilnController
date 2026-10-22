@@ -8,7 +8,7 @@ OpenCV are; scripts/read_display.sh is the wrapper to run from a Mac.
     python /app/scripts/read_display.py --save SLo      also keep this frame as
                                                         a reference, labelled SLo
 
-Each reading prints the decoded text, what it classified as, and the red
+Each reading prints the decoded text, what it classified as, and the green
 level sampled at every segment (a-g, then the decimal point), with the
 lit/unlit cut-off, so a misread can be traced to the segment that caused it.
 It also writes /tmp/read_display.jpg: the display area with the digit boxes
