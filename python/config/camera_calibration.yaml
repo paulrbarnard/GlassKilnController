@@ -15,11 +15,12 @@
 # The first character of IdLE lights the right-hand segments (b, c), so it
 # reads as the 7-segment pattern for "1".
 
-# roi moved +7, +5 px on 2026-10-22 after the mount was adjusted
-# (best fit to a frame of "LoAd."; boxes and points unchanged).
+# roi refitted on 2026-10-22 after each mount change (best fit to frames
+# of "LoAd.", then "Pro ." on the revised solenoid mount); boxes and
+# points unchanged.
 roi:
-  x: 537
-  y: 550
+  x: 532
+  y: 543
   w: 660
   h: 220
 

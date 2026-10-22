@@ -316,7 +316,10 @@ class RealVision(KilnVision):
     """
 
     CAPTURE_SIZE = (1632, 1232)
-    SETTLE_FRAMES = 5  # auto-exposure needs a few frames after opening
+    # Auto-exposure and white balance take ~5 s to settle after the camera
+    # opens (green peak 115 -> 254 on the lit display, measured 2026-10-22);
+    # frames before that read the display as dim or off.
+    SETTLE_S = 6.0
 
     def __init__(
         self,
@@ -354,7 +357,8 @@ class RealVision(KilnVision):
         capture = self._cv2.VideoCapture(pipeline, self._cv2.CAP_GSTREAMER)
         if not capture.isOpened():
             raise RuntimeError("failed to open libcamera pipeline")
-        for _ in range(self.SETTLE_FRAMES):
+        settle_until = time.monotonic() + self.SETTLE_S
+        while time.monotonic() < settle_until:
             capture.read()
         log.info("RealVision: camera open (%s)", source)
         return capture

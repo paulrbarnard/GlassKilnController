@@ -11,17 +11,23 @@
 # out at 20. 100 leaves margin for the button's spring; re-test once the
 # solenoids are mounted over the real buttons.
 #
+# On the kiln 2026-10-22 (revised mount: plunger pushes the membrane dome
+# 0.5 mm at the end of travel, 85A TPU finger), 6 UP presses of 300 ms
+# each registered: duty 100 -> 4/6, 160 -> 3/6, 220 -> 6/6, 255 -> 6/6.
+# The unloaded hold test above was misleading: a membrane dome needs most
+# of the solenoid's force to stay closed long enough to register.
+#
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
 
 enter:
   kick_ms: 100
-  hold_duty: 100
+  hold_duty: 240
 
 up:
   kick_ms: 100
-  hold_duty: 100
+  hold_duty: 240
 
 down:
   kick_ms: 100
-  hold_duty: 100
+  hold_duty: 240
