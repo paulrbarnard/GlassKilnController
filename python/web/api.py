@@ -26,7 +26,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import Callable, Optional, Protocol
 
 from kiln.firing import FiringMonitor
 from kiln.profiles import Profile, ProfileKind, ProfileLibrary
@@ -44,8 +44,17 @@ class UILike(Protocol):
 
 @dataclass
 class RunState:
-    running: bool = False
+    """Which controller action (if any) is pressing buttons right now. Only
+    one may run at a time: two sequences' presses interleaving left the
+    controller in the MGF option when a double-tapped unit change ran
+    twice at once (2026-10-22)."""
+
+    busy: Optional[str] = None
     lock: threading.Lock = field(default_factory=threading.Lock)
+
+    @property
+    def running(self) -> bool:
+        return self.busy is not None
 
 
 def register_routes(
@@ -83,6 +92,30 @@ def register_routes(
                 ui.send_message("error", {"message": f"unexpected error: {exc}"})
 
         threading.Thread(target=guarded, daemon=True).start()
+
+    def run_exclusive(
+        what: str, task: Callable[[], None], before_start: Optional[Callable[[], None]] = None
+    ) -> dict:
+        """Run a button-pressing ``task`` in the background unless another
+        controller action is already running. ``before_start`` runs once
+        the controller is claimed, before the task's thread starts."""
+
+        with state.lock:
+            if state.busy is not None:
+                return {"error": f"the controller is busy ({state.busy}); try again when it has finished"}
+            state.busy = what
+        if before_start:
+            before_start()
+
+        def wrapped() -> None:
+            try:
+                task()
+            finally:
+                with state.lock:
+                    state.busy = None
+
+        run_in_background(wrapped)
+        return {"ok": True}
 
     # -- profiles -------------------------------------------------------
 
@@ -154,13 +187,8 @@ def register_routes(
         except KeyError:
             return {"error": f"no such profile: {profile_id}"}
 
-        with state.lock:
-            if state.running or monitor.active:
-                return {"error": "a firing is already in progress"}
-            state.running = True
-
-        monitor.begin(profile.id, profile.name)
-        sequencer.abort.clear()
+        if monitor.active:
+            return {"error": "a firing is already in progress"}
 
         def task() -> None:
             try:
@@ -179,11 +207,14 @@ def register_routes(
                 except SequenceError as stop_exc:
                     monitor.finish("error", f"Programming failed ({exc}) and backing out failed too: {stop_exc}")
                 raise
-            finally:
-                with state.lock:
-                    state.running = False
 
-        run_in_background(task)
+        def before_start() -> None:
+            monitor.begin(profile.id, profile.name)
+            sequencer.abort.clear()
+
+        result = run_exclusive("starting a firing", task, before_start)
+        if "error" in result:
+            return result
         return {"ok": True, "profile": _summary(profile)}
 
     def stop():
@@ -199,15 +230,22 @@ def register_routes(
             deadline = time.monotonic() + 15.0
             while time.monotonic() < deadline:
                 with state.lock:
-                    if not state.running:
+                    if state.busy is None:
+                        state.busy = "stopping"
                         break
                 time.sleep(0.2)
+            else:
+                with state.lock:  # a press is stuck; stop regardless
+                    state.busy = "stopping"
             sequencer.abort.clear()
             try:
                 result = sequencer.stop()
             except SequenceError as exc:
                 monitor.finish("error", str(exc))
                 raise
+            finally:
+                with state.lock:
+                    state.busy = None
             monitor.finish("stopped", f"Stopped: the controller shows {result.raw_text.strip()!r}")
 
         run_in_background(task)
@@ -217,16 +255,13 @@ def register_routes(
         return monitor.status()
 
     def skip_segment():
-        run_in_background(sequencer.skip_segment)
-        return {"ok": True}
+        return run_exclusive("skipping a segment", sequencer.skip_segment)
 
     def add_time():
-        run_in_background(sequencer.add_time)
-        return {"ok": True}
+        return run_exclusive("adding time", sequencer.add_time)
 
     def add_temperature():
-        run_in_background(sequencer.add_temperature)
-        return {"ok": True}
+        return run_exclusive("adding temperature", sequencer.add_temperature)
 
     def status():
         return {"bridge_ok": sequencer.bridge.ping(), "running": state.running}
@@ -234,8 +269,7 @@ def register_routes(
     # -- settings (OPTIONS mode, p.22) -------------------------------------
 
     def toggle_mgf():
-        run_in_background(sequencer.toggle_mgf)
-        return {"ok": True}
+        return run_exclusive("toggling MGF", sequencer.toggle_mgf)
 
     def get_settings():
         return {"temperature_scale": settings.temperature_scale}
@@ -246,9 +280,6 @@ def register_routes(
         (Sequencer.set_temperature_scale refuses unless it sees IdLE)."""
 
         celsius = bool(body.get("celsius", False))
-        with state.lock:
-            if state.running:
-                return {"error": "a firing is being started; try again when it's running"}
 
         def task() -> None:
             sequencer.set_temperature_scale(celsius)
@@ -257,14 +288,12 @@ def register_routes(
             ui.send_message("settings", {"temperature_scale": settings.temperature_scale})
             push_progress(f"Temperature unit set to °{settings.temperature_scale} on the app and the controller.")
 
-        run_in_background(task)
-        return {"ok": True}
+        return run_exclusive("changing the temperature unit", task)
 
     def factory_reset():
         # UI must get explicit human confirmation before calling this — see
         # Sequencer.factory_reset docstring. Wipes stored PRO programs 1-4.
-        run_in_background(sequencer.factory_reset)
-        return {"ok": True}
+        return run_exclusive("factory reset", sequencer.factory_reset)
 
     ui.expose_api("GET", "/api/profiles", list_profiles)
     ui.expose_api("GET", "/api/profiles/{profile_id}", get_profile)

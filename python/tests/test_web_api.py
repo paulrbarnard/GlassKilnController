@@ -234,3 +234,28 @@ def test_settings_load_defaults_to_celsius(tmp_path):
     assert AppSettings.load(tmp_path / "missing.json").temperature_scale == "C"
     (tmp_path / "bad.json").write_text("{not json")
     assert AppSettings.load(tmp_path / "bad.json").temperature_scale == "C"
+
+
+def test_only_one_controller_action_runs_at_a_time(tmp_path):
+    # A double-tapped unit change once ran twice at once and the two
+    # sequences' presses interleaved on the controller.
+    import threading
+
+    from kiln.settings import AppSettings
+
+    bridge = MockBridge(press_delay_s=0.0)
+    sequencer = Sequencer(bridge=bridge, vision=MockVision(script=["IdLE"]))
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    ui = FakeUI()
+    register_routes(ui, sequencer, library, AppSettings(), tmp_path / "settings.json")
+
+    release = threading.Event()
+    sequencer.set_temperature_scale = lambda celsius: release.wait(2.0)
+    assert ui.call("POST", "/api/settings/scale", body={"celsius": False})["ok"] is True
+    second = ui.call("POST", "/api/settings/scale", body={"celsius": False})
+    assert "busy (changing the temperature unit)" in second["error"]
+    assert "busy" in ui.call("POST", "/api/settings/mgf")["error"]
+    assert "busy" in ui.call("POST", "/api/run/{profile_id}", profile_id="full_fuse_slow")["error"]
+    release.set()
+    _wait_for_threads()
+    assert ui.call("GET", "/api/status")["running"] is False
