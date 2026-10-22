@@ -685,6 +685,7 @@ ui.on_message('settings', (data) => {
 
 ui.on_message('error', (data) => {
   setScaleBusy(false);
+  setKilnReading(false);
   if (document.getElementById('screen-run').classList.contains('active')) {
     appendLog(`ERROR: ${data.message}`, true);
   } else {
@@ -703,7 +704,9 @@ document.getElementById('settings-btn').addEventListener('click', () => {
   showScreen('screen-settings');
   refreshBridgeStatus();
   checkControllerUnit();
+  loadKilnPrograms();
 });
+document.getElementById('kiln-read-btn').addEventListener('click', readKilnPrograms);
 
 document.getElementById('profile-back-btn').addEventListener('click', () => profileBackTarget());
 document.getElementById('profile-edit-btn').addEventListener('click', () => {
@@ -761,6 +764,101 @@ async function checkControllerUnit() {
     console.warn('controller unit unavailable', e);
   }
 }
+
+// -- Kiln programs (Settings) ----------------------------------------------------
+//
+// The kiln's 5 Ramp & Hold slots, read off its display (LoAd > slot > Review,
+// each slot twice; see kiln/programs.py). Read-only on the kiln; Import
+// saves a slot as an app custom profile assigned to that slot.
+
+function describeKilnProgram(entry) {
+  const unit = tempUnitLabel();
+  return entry.segments
+    .map((s) => {
+      const hold = s.hold_minutes ? `, hold ${formatDuration(s.hold_minutes)}` : '';
+      return `${showRate(s.rate_f_per_hr).toFixed(0)}${unit}/hr → ${showTemp(s.target_temp_f).toFixed(0)}${unit}${hold}`;
+    })
+    .join(' · ');
+}
+
+function renderKilnPrograms(programs) {
+  const list = document.getElementById('kiln-programs');
+  list.innerHTML = '';
+  programs.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'kiln-slot';
+    const label = document.createElement('span');
+    label.className = 'slot-label';
+    label.textContent = `Slot ${entry.slot}`;
+    const text = document.createElement('span');
+    text.className = 'slot-text';
+    row.append(label, text);
+
+    if (entry.error) {
+      text.innerHTML = `<span class="slot-error">Couldn't read: ${entry.error}</span>`;
+    } else {
+      text.textContent = describeKilnProgram(entry);
+      const app = entry.app_profile;
+      const note = document.createElement('span');
+      note.className = 'slot-note';
+      if (app && app.matches) {
+        note.textContent = `In the app as “${app.name}” ✓`;
+        row.appendChild(note);
+      } else {
+        if (app) {
+          note.textContent = `Differs from “${app.name}”`;
+          row.appendChild(note);
+        }
+        const btn = document.createElement('button');
+        btn.textContent = app ? 'Import (replace)' : 'Import';
+        btn.addEventListener('click', () => importKilnProgram(entry.slot, btn));
+        row.appendChild(btn);
+      }
+    }
+    list.appendChild(row);
+  });
+}
+
+async function importKilnProgram(slot, btn) {
+  btn.disabled = true;
+  try {
+    const profile = await api('POST', `/api/kiln_programs/${slot}/import`, {});
+    showToast(`Slot ${slot} saved as the custom profile “${profile.name}”.`);
+    loadKilnPrograms();
+  } catch (e) {
+    btn.disabled = false;
+    alert(`Could not import: ${e.message}`);
+  }
+}
+
+function setKilnReading(reading) {
+  const btn = document.getElementById('kiln-read-btn');
+  btn.disabled = reading;
+  btn.textContent = reading ? 'Reading the kiln… (about 2 min)' : 'Read programs from kiln';
+}
+
+async function loadKilnPrograms() {
+  try {
+    const result = await api('GET', '/api/kiln_programs');
+    setKilnReading(result.reading);
+    renderKilnPrograms(result.programs);
+  } catch (e) {
+    console.warn('kiln programs unavailable', e);
+  }
+}
+
+function readKilnPrograms() {
+  setKilnReading(true);
+  api('POST', '/api/kiln_programs/read', {}).catch((e) => {
+    setKilnReading(false);
+    alert(`Error: ${e.message}`);
+  });
+}
+
+ui.on_message('kiln_programs', (data) => {
+  renderKilnPrograms(data.programs);
+  if (data.done) setKilnReading(false);
+});
 
 function requestScale(celsius) {
   setScaleBusy(true, `Changing to °${celsius ? 'C' : 'F'} on the controller… (about 20 s)`);

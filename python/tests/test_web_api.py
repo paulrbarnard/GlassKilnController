@@ -259,3 +259,32 @@ def test_only_one_controller_action_runs_at_a_time(tmp_path):
     release.set()
     _wait_for_threads()
     assert ui.call("GET", "/api/status")["running"] is False
+
+
+def test_kiln_programs_read_compare_and_import(tmp_path):
+    from kiln.programs import parse_review
+    from tests.test_programs import SLOT_4
+
+    bridge = MockBridge(press_delay_s=0.0)
+    sequencer = Sequencer(bridge=bridge, vision=MockVision(script=["IdLE"]))
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    ui = FakeUI()
+    register_routes(ui, sequencer, library, settings_path=tmp_path / "settings.json")
+    sequencer.read_program = lambda slot: parse_review(SLOT_4)
+
+    assert ui.call("POST", "/api/kiln_programs/read", body={"slots": [4]})["ok"] is True
+    _wait_for_threads()
+    [entry] = ui.call("GET", "/api/kiln_programs")["programs"]
+    assert entry["slot"] == 4 and entry["segments"][0]["target_temp_f"] == 1202.0
+    assert "app_profile" not in entry
+
+    profile = ui.call("POST", "/api/kiln_programs/{slot}/import", slot="4", body={})
+    assert profile["id"] == "kiln_slot_4" and profile["pro_slot"] == 4
+    assert library.active_slot_holder(4).id == "kiln_slot_4"
+    [entry] = ui.call("GET", "/api/kiln_programs")["programs"]
+    assert entry["app_profile"] == {"id": "kiln_slot_4", "name": "Kiln slot 4", "matches": True}
+
+    # Read again: still matches what the app now holds for slot 4.
+    ui.call("POST", "/api/kiln_programs/read", body={"slots": [4]})
+    _wait_for_threads()
+    assert ui.call("GET", "/api/kiln_programs")["programs"][0]["app_profile"]["matches"] is True

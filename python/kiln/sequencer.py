@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -32,6 +33,7 @@ from kiln.protocol import (
     RampHoldSegment,
     Speed,
 )
+from kiln.programs import KilnProgram, ReviewParseError, parse_review
 from kiln.vision import ControllerState, KilnVision
 from kiln.settings import f_to_c, rate_f_to_c
 
@@ -477,6 +479,125 @@ class Sequencer:
         self._wait_for_message(DisplayMessage.READY)
         if start:
             self._start_from_ready()
+
+    # -- Reading PRO slots (LoAd > slot > rEdI > DOWN = Review) ----------------
+
+    def _slot_number(self, timeout_s: float = 3.0) -> int:
+        """The slot shown on LoAd/Pro's slot screen, which alternates "Pro"
+        with the number ("0005")."""
+
+        state = self.vision.wait_for(
+            lambda s: s.message is None and s.numeric_value is not None, timeout_s
+        )
+        if state is None:
+            raise SequenceError("no slot number on the display")
+        return int(state.numeric_value)
+
+    def _choose_slot(self, slot: int) -> None:
+        """On the slot screen, step to ``slot`` (UP/DOWN move one slot; 1-5,
+        no wrap) and confirm the number each time."""
+
+        current = self._slot_number()
+        for _ in range(8):
+            if current == slot:
+                return
+            key = Key.DOWN if current > slot else Key.UP
+            for _attempt in range(MENU_PRESS_ATTEMPTS):
+                self._press(key)
+                state = self.vision.wait_for(
+                    lambda s: s.message is None
+                    and s.numeric_value is not None
+                    and int(s.numeric_value) != current,
+                    MENU_CHANGE_TIMEOUT_S,
+                )
+                self._check_abort()
+                if state is not None:
+                    current = int(state.numeric_value)
+                    break
+            else:
+                raise SequenceError(f"{key.name} didn't change slot {current}")
+        raise SequenceError(f"couldn't reach slot {slot}")
+
+    def _load_slot(self, slot: int) -> None:
+        """LoAd ``slot``, ending on rEdI (nothing is started)."""
+
+        self.select_mode(Mode.LOAD)
+        self._choose_slot(slot)
+        for _ in range(MENU_PRESS_ATTEMPTS):
+            self._press(Key.ENTER)
+            state = self.vision.wait_for(
+                lambda s: s.message is DisplayMessage.READY or s.is_error, MENU_CHANGE_TIMEOUT_S
+            )
+            self._check_abort()
+            if state is not None:
+                if state.is_error:
+                    raise ControllerErrorState(state)
+                return
+            now = self._read()
+            if not (now.message is DisplayMessage.PRO or now.numeric_value is not None):
+                raise SequenceError(f"unexpected {now.raw_text!r} after choosing slot {slot}")
+        raise SequenceError(f"ENTER on slot {slot} didn't register")
+
+    def _review(self, max_s: float = 60.0) -> list[str]:
+        """From rEdI, press DOWN and record every screen of the Review until
+        it comes back to rEdI. Each screen shows for ~0.5 s."""
+
+        for _ in range(MENU_PRESS_ATTEMPTS):
+            self._press(Key.DOWN)
+            screens: list[str] = []
+            last = None
+            pressed = time.monotonic()
+            while time.monotonic() - pressed < max_s:
+                self._check_abort()
+                state = self.vision.read()
+                if state.is_error:
+                    raise ControllerErrorState(state)
+                text = state.raw_text
+                if "?" in text or text == last:
+                    if not screens and time.monotonic() - pressed > MENU_CHANGE_TIMEOUT_S:
+                        break  # DOWN didn't register: press again
+                    continue
+                last = text
+                if state.message is DisplayMessage.READY:
+                    if screens:
+                        return screens
+                    if time.monotonic() - pressed > MENU_CHANGE_TIMEOUT_S:
+                        break
+                    continue
+                screens.append(text)
+            else:
+                raise SequenceError("the Review never returned to rEdI")
+        raise SequenceError("DOWN on rEdI didn't start the Review")
+
+    def read_program(self, slot: int, reviews: int = 2) -> KilnProgram:
+        """Read PRO ``slot`` off the controller without changing it: LoAd
+        it, Review it ``reviews`` times, and only accept the program if every
+        Review parses to the same thing (a missed screen fails to parse or
+        disagrees). Returns to IdLE. Doesn't start anything."""
+
+        if not 1 <= slot <= 5:
+            raise ValueError(f"slot must be 1-5, got {slot}")
+        self._require_idle("reading the kiln's programs")
+        self._progress(f"reading program slot {slot}")
+        programs: list[KilnProgram] = []
+
+        def action() -> None:
+            self._load_slot(slot)
+            for _ in range(reviews + 1):  # one spare Review for a bad read
+                try:
+                    programs.append(parse_review(self._review()))
+                except ReviewParseError as exc:
+                    log.info("slot %d review didn't parse (%s); reviewing again", slot, exc)
+                if len(programs) >= reviews:
+                    break
+            self.goto_idle()
+
+        self._backing_out_on_failure(action)
+        if len(programs) < reviews or any(p != programs[0] for p in programs):
+            raise SequenceError(f"couldn't get {reviews} matching reads of slot {slot}")
+        if programs[0].slot != slot:
+            raise SequenceError(f"asked for slot {slot} but the controller showed slot {programs[0].slot}")
+        return programs[0]
 
     # -- Profile entry point --------------------------------------------------
 

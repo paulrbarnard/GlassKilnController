@@ -254,6 +254,81 @@ def register_routes(
     def firing_status():
         return monitor.status()
 
+    # -- the kiln's own Ramp & Hold programs (PRO slots 1-5) ----------------
+
+    kiln_programs: dict[int, dict] = {}
+
+    def _slot_entry(slot: int, program=None, error: Optional[str] = None) -> dict:
+        entry: dict = {"slot": slot}
+        if error:
+            entry["error"] = error
+        if program is not None:
+            entry.update(program.to_dict())
+        holder = library.active_slot_holder(slot)
+        if holder is not None:
+            entry["app_profile"] = {"id": holder.id, "name": holder.name}
+            if program is not None:
+                entry["app_profile"]["matches"] = _same_segments(holder.segments or [], program.segments)
+        return entry
+
+    def read_kiln_programs(body: dict | None = None):
+        """Read the kiln's PRO slots (default all five) into the app. Each
+        slot is read twice and must match; the controller is left at IdLE
+        and nothing is changed or started."""
+
+        slots = [int(s) for s in (body or {}).get("slots") or [1, 2, 3, 4, 5]]
+        if any(not 1 <= s <= 5 for s in slots):
+            return {"error": "slots must be 1-5"}
+
+        def task() -> None:
+            for slot in slots:
+                try:
+                    kiln_programs[slot] = _slot_entry(slot, program=sequencer.read_program(slot))
+                except SequenceAborted:
+                    raise
+                except SequenceError as exc:
+                    kiln_programs[slot] = _slot_entry(slot, error=str(exc))
+                ui.send_message("kiln_programs", {"programs": list_kiln_programs()["programs"], "done": False})
+            ui.send_message("kiln_programs", {"programs": list_kiln_programs()["programs"], "done": True})
+            push_progress(f"Read {len(slots)} program slot(s) from the kiln.")
+
+        return run_exclusive("reading the kiln's programs", task)
+
+    def list_kiln_programs():
+        with state.lock:
+            busy = state.busy
+        return {
+            "reading": busy == "reading the kiln's programs",
+            "programs": [kiln_programs[s] for s in sorted(kiln_programs)],
+        }
+
+    def import_kiln_program(slot: str, body: dict | None = None):
+        """Save a slot read from the kiln as an app custom profile, active
+        in that slot (replacing whichever profile held it)."""
+
+        entry = kiln_programs.get(int(slot))
+        if not entry or "segments" not in entry:
+            return {"error": f"slot {slot} hasn't been read from the kiln"}
+        name = ((body or {}).get("name") or f"Kiln slot {slot}").strip()
+        profile_id = f"kiln_slot_{slot}"
+        try:
+            profile = Profile.from_dict(
+                {
+                    "id": profile_id,
+                    "name": name,
+                    "description": f"Read from the kiln's program slot {slot}.",
+                    "kind": ProfileKind.RAMP_HOLD.value,
+                    "source": "user",
+                    "segments": entry["segments"],
+                }
+            )
+            library.save_user_profile(profile)
+            profile = library.set_active_slot(profile_id, int(slot))
+        except (KeyError, ValueError) as exc:
+            return {"error": str(exc)}
+        kiln_programs[int(slot)] = {**entry, "app_profile": {"id": profile.id, "name": profile.name, "matches": True}}
+        return _detail(profile)
+
     def skip_segment():
         return run_exclusive("skipping a segment", sequencer.skip_segment)
 
@@ -317,6 +392,9 @@ def register_routes(
     ui.expose_api("POST", "/api/run/{profile_id}", run_profile)
     ui.expose_api("POST", "/api/stop", stop)
     ui.expose_api("GET", "/api/firing", firing_status)
+    ui.expose_api("POST", "/api/kiln_programs/read", read_kiln_programs)
+    ui.expose_api("GET", "/api/kiln_programs", list_kiln_programs)
+    ui.expose_api("POST", "/api/kiln_programs/{slot}/import", import_kiln_program)
     ui.expose_api("POST", "/api/skip", skip_segment)
     ui.expose_api("POST", "/api/add_time", add_time)
     ui.expose_api("POST", "/api/add_temp", add_temperature)
@@ -358,3 +436,17 @@ def _detail(profile: Profile) -> dict:
         for s in profile.resolved_segments()
     ]
     return d
+
+
+def _same_segments(app_segments, kiln_segments, temp_tol_f: float = 2.0, rate_tol_f: float = 2.0) -> bool:
+    """Whether an app profile's segments are what the kiln holds, allowing
+    for whole-degree rounding when the controller is in °C."""
+
+    if len(app_segments) != len(kiln_segments):
+        return False
+    return all(
+        abs(a.target_temp_f - k.target_temp_f) <= temp_tol_f
+        and abs(a.rate_f_per_hr - k.rate_f_per_hr) <= rate_tol_f
+        and round(a.hold_minutes) == round(k.hold_minutes)
+        for a, k in zip(app_segments, kiln_segments)
+    )

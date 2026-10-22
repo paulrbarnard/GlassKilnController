@@ -579,3 +579,40 @@ table.segment-editor input {
   font-size: 17px;
   z-index: 50;
 }
+
+/* -- Kiln programs (Settings) -------------------------------------------- */
+
+.kiln-programs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kiln-slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.kiln-slot .slot-label {
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.kiln-slot .slot-text {
+  flex: 1;
+  font-size: 16px;
+}
+
+.kiln-slot .slot-note {
+  color: var(--text-dim);
+  font-size: 15px;
+}
+
+.kiln-slot .slot-error {
+  color: #ff8a80;
+}
