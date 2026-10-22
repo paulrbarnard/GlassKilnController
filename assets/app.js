@@ -635,9 +635,21 @@ function factoryReset() {
 // -- Live progress/error stream --------------------------------------------------
 
 const ui = new WebUI();
+let toastTimer = null;
+
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (toast.hidden = true), 6000);
+}
+
 ui.on_message('progress', (data) => {
   if (document.getElementById('screen-run').classList.contains('active')) {
     appendLog(data.message);
+  } else {
+    showToast(data.message);
   }
 });
 // The temperature unit is an app setting (Settings screen), applied to
@@ -667,10 +679,12 @@ ui.on_message('firing', (data) => {
 
 ui.on_message('settings', (data) => {
   applyTempUnit(data.temperature_scale);
+  setScaleBusy(false);
   alert(`Temperature unit is now ${tempUnitLabel()} on the app and the controller.`);
 });
 
 ui.on_message('error', (data) => {
+  setScaleBusy(false);
   if (document.getElementById('screen-run').classList.contains('active')) {
     appendLog(`ERROR: ${data.message}`, true);
   } else {
@@ -721,12 +735,26 @@ document.getElementById('settings-back-btn').addEventListener('click', goHome);
 document.getElementById('mgf-toggle-btn').addEventListener('click', () =>
   api('POST', '/api/settings/mgf').catch((e) => alert(`Error: ${e.message}`))
 );
-document.getElementById('scale-f-btn').addEventListener('click', () =>
-  api('POST', '/api/settings/scale', { celsius: false }).catch((e) => alert(`Error: ${e.message}`))
-);
-document.getElementById('scale-c-btn').addEventListener('click', () =>
-  api('POST', '/api/settings/scale', { celsius: true }).catch((e) => alert(`Error: ${e.message}`))
-);
+// Changing the unit takes ~20 s of button presses on the controller. Lock
+// both buttons and say so until the controller confirms ('settings') or
+// fails ('error'), so a second tap can't send it twice.
+const SCALE_BUTTONS = ['scale-f-btn', 'scale-c-btn'];
+
+function setScaleBusy(busy, text) {
+  SCALE_BUTTONS.forEach((id) => (document.getElementById(id).disabled = busy));
+  document.getElementById('scale-current').textContent = text || `Temperature unit: ${tempUnitLabel()}`;
+}
+
+function requestScale(celsius) {
+  setScaleBusy(true, `Changing to °${celsius ? 'C' : 'F'} on the controller… (about 20 s)`);
+  api('POST', '/api/settings/scale', { celsius }).catch((e) => {
+    setScaleBusy(false);
+    alert(`Error: ${e.message}`);
+  });
+}
+
+document.getElementById('scale-f-btn').addEventListener('click', () => requestScale(false));
+document.getElementById('scale-c-btn').addEventListener('click', () => requestScale(true));
 document.getElementById('factory-reset-btn').addEventListener('click', factoryReset);
 
 window.addEventListener('resize', () => {
