@@ -659,7 +659,7 @@ function applyTempUnit(unit) {
   setTempUnit(unit);
   document.querySelectorAll('.temp-unit').forEach((el) => (el.textContent = tempUnitLabel()));
   document.getElementById('add-temp-step').textContent = TEMP_UNIT === 'C' ? '+3°C' : '+5°F';
-  document.getElementById('scale-current').textContent = `Temperature unit: ${tempUnitLabel()}`;
+  setScaleBusy(false);
   // Profile lists and diagrams are rendered when each screen opens, so
   // they pick the new unit up from there.
 }
@@ -738,10 +738,10 @@ document.getElementById('mgf-toggle-btn').addEventListener('click', () =>
 // Changing the unit takes ~20 s of button presses on the controller. Lock
 // both buttons and say so until the controller confirms ('settings') or
 // fails ('error'), so a second tap can't send it twice.
-const SCALE_BUTTONS = ['scale-f-btn', 'scale-c-btn'];
-
 function setScaleBusy(busy, text) {
-  SCALE_BUTTONS.forEach((id) => (document.getElementById(id).disabled = busy));
+  // While idle, only the other unit's button can be pressed.
+  document.getElementById('scale-f-btn').disabled = busy || TEMP_UNIT === 'F';
+  document.getElementById('scale-c-btn').disabled = busy || TEMP_UNIT === 'C';
   document.getElementById('scale-current').textContent = text || `Temperature unit: ${tempUnitLabel()}`;
 }
 
