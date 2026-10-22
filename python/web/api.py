@@ -29,6 +29,8 @@ from typing import Callable, Protocol
 
 from kiln.profiles import Profile, ProfileKind, ProfileLibrary
 from kiln.sequencer import Sequencer, SequenceError
+from kiln.settings import DEFAULT_PATH as SETTINGS_PATH
+from kiln.settings import AppSettings
 
 log = logging.getLogger(__name__)
 
@@ -44,10 +46,19 @@ class RunState:
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
-def register_routes(ui: UILike, sequencer: Sequencer, library: ProfileLibrary) -> None:
+def register_routes(
+    ui: UILike,
+    sequencer: Sequencer,
+    library: ProfileLibrary,
+    settings: AppSettings | None = None,
+    settings_path=SETTINGS_PATH,
+) -> None:
     state = RunState()
+    settings = settings or AppSettings()
+    sequencer.controller_celsius = settings.celsius
 
     def push_progress(message: str) -> None:
+        log.info("progress: %s", message)
         ui.send_message("progress", {"message": message})
 
     sequencer.on_progress = push_progress
@@ -176,9 +187,27 @@ def register_routes(ui: UILike, sequencer: Sequencer, library: ProfileLibrary) -
         run_in_background(sequencer.toggle_mgf)
         return {"ok": True}
 
+    def get_settings():
+        return {"temperature_scale": settings.temperature_scale}
+
     def set_temperature_scale(body: dict):
+        """Set the app's temperature unit and the GM LT's to match. The app
+        only switches once the controller has, so the two can't disagree
+        (Sequencer.set_temperature_scale refuses unless it sees IdLE)."""
+
         celsius = bool(body.get("celsius", False))
-        run_in_background(lambda: sequencer.set_temperature_scale(celsius))
+        with state.lock:
+            if state.running:
+                return {"error": "a firing is being started; try again when it's running"}
+
+        def task() -> None:
+            sequencer.set_temperature_scale(celsius)
+            settings.temperature_scale = "C" if celsius else "F"
+            settings.save(settings_path)
+            ui.send_message("settings", {"temperature_scale": settings.temperature_scale})
+            push_progress(f"Temperature unit set to °{settings.temperature_scale} on the app and the controller.")
+
+        run_in_background(task)
         return {"ok": True}
 
     def factory_reset():
@@ -201,6 +230,7 @@ def register_routes(ui: UILike, sequencer: Sequencer, library: ProfileLibrary) -
     ui.expose_api("POST", "/api/add_temp", add_temperature)
     ui.expose_api("GET", "/api/status", status)
     ui.expose_api("POST", "/api/settings/mgf", toggle_mgf)
+    ui.expose_api("GET", "/api/settings", get_settings)
     ui.expose_api("POST", "/api/settings/scale", set_temperature_scale)
     ui.expose_api("POST", "/api/settings/reset", factory_reset)
 

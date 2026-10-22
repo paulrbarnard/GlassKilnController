@@ -101,7 +101,7 @@ function buildProfileCard(p, fromScreen, diagramSink) {
   if (p.segments) {
     const peak = document.createElement('div');
     peak.className = 'peak';
-    peak.innerHTML = `${fToC(peakTempF(p.segments)).toFixed(0)}<span class="unit">°C peak</span>`;
+    peak.innerHTML = `${showTemp(peakTempF(p.segments)).toFixed(0)}<span class="unit">${tempUnitLabel()} peak</span>`;
     card.appendChild(peak);
     diagramSink.push([diagramCanvas, p.segments]);
   }
@@ -193,7 +193,7 @@ let currentProfile = null;
 function renderProfileStats(segments) {
   const holdMinutes = segments.reduce((sum, s) => sum + (s.hold_minutes || 0), 0);
   const items = [
-    { icon: 'thermometer', text: `${fToC(peakTempF(segments)).toFixed(0)}°C peak` },
+    { icon: 'thermometer', text: `${showTemp(peakTempF(segments)).toFixed(0)}${tempUnitLabel()} peak` },
     { icon: 'clock', text: `${totalHours(segments).toFixed(1)}h total` },
     { icon: 'clock', text: `${holdMinutes.toFixed(0)} min hold` },
   ];
@@ -247,20 +247,20 @@ async function openProfile(id, fromScreen) {
 
 function populateMgfFields(profile) {
   const seg = profile.segments[1];
-  document.getElementById('mgf-temp').value = Math.round(fToC(seg.target_temp_f));
+  document.getElementById('mgf-temp').value = Math.round(showTemp(seg.target_temp_f));
   document.getElementById('mgf-hold').value = Math.round(seg.hold_minutes);
 }
 
 async function saveMgfOverride() {
-  const tempC = parseFloat(document.getElementById('mgf-temp').value);
+  const temp = parseFloat(document.getElementById('mgf-temp').value);
   const holdMin = parseFloat(document.getElementById('mgf-hold').value);
-  if (!Number.isFinite(tempC) || !Number.isFinite(holdMin)) {
+  if (!Number.isFinite(temp) || !Number.isFinite(holdMin)) {
     alert('Enter a temperature and hold time.');
     return;
   }
   try {
     const profile = await api('POST', `/api/profiles/${currentProfile.id}/mgf_override`, {
-      temp_override_f: cToF(tempC),
+      temp_override_f: readTemp(temp),
       hold_override_minutes: holdMin,
     });
     currentProfile = profile;
@@ -382,16 +382,16 @@ function stopFiring() {
 let editingProfileId = null;
 
 function editorReadSegments() {
-  // Inputs are °C (matching the visible column headers); converted back to
-  // °F here since that's what the API/backend/controller programming uses
-  // — see diagrams.js's cToF/rateCToF for why.
+  // Inputs are in the app's unit (matching the visible column headers);
+  // converted back to °F here since that's what the API stores — see
+  // diagrams.js's readTemp/readRate.
   const rows = document.querySelectorAll('#editor-rows tr');
   const segments = [];
   rows.forEach((row) => {
     const [rate, temp, hold] = row.querySelectorAll('input');
     segments.push({
-      rate_f_per_hr: rateCToF(parseFloat(rate.value) || 0),
-      target_temp_f: cToF(parseFloat(temp.value) || 0),
+      rate_f_per_hr: readRate(parseFloat(rate.value) || 0),
+      target_temp_f: readTemp(parseFloat(temp.value) || 0),
       hold_minutes: parseFloat(hold.value) || 0,
     });
   });
@@ -410,13 +410,11 @@ function editorAddRow(segF) {
   }
   const row = document.createElement('tr');
   // segF (when editing an existing profile) is °F, matching the API — the
-  // row's inputs are °C, so convert once here for display.
+  // row's inputs are in the app's unit, so convert once here for display.
   const values = segF || { rate_f_per_hr: 300, target_temp_f: 1000, hold_minutes: 10 };
-  const rateC = rateFToC(values.rate_f_per_hr);
-  const tempC = fToC(values.target_temp_f);
   row.innerHTML = `
-    <td><input type="number" value="${rateC.toFixed(0)}" /></td>
-    <td><input type="number" value="${tempC.toFixed(0)}" /></td>
+    <td><input type="number" value="${showRate(values.rate_f_per_hr).toFixed(0)}" /></td>
+    <td><input type="number" value="${showTemp(values.target_temp_f).toFixed(0)}" /></td>
     <td><input type="number" value="${values.hold_minutes}" /></td>
     <td><button class="remove-row">&minus;</button></td>
   `;
@@ -524,6 +522,32 @@ ui.on_message('progress', (data) => {
     appendLog(data.message);
   }
 });
+// The temperature unit is an app setting (Settings screen), applied to
+// every label and input. It only changes once the controller has been set
+// to match (see web/api.py set_temperature_scale).
+function applyTempUnit(unit) {
+  setTempUnit(unit);
+  document.querySelectorAll('.temp-unit').forEach((el) => (el.textContent = tempUnitLabel()));
+  document.getElementById('add-temp-step').textContent = TEMP_UNIT === 'C' ? '+3°C' : '+5°F';
+  document.getElementById('scale-current').textContent = `Temperature unit: ${tempUnitLabel()}`;
+  // Profile lists and diagrams are rendered when each screen opens, so
+  // they pick the new unit up from there.
+}
+
+async function loadSettings() {
+  try {
+    const settings = await api('GET', '/api/settings');
+    applyTempUnit(settings.temperature_scale);
+  } catch (e) {
+    console.warn('settings unavailable; showing °C', e);
+  }
+}
+
+ui.on_message('settings', (data) => {
+  applyTempUnit(data.temperature_scale);
+  alert(`Temperature unit is now ${tempUnitLabel()} on the app and the controller.`);
+});
+
 ui.on_message('error', (data) => {
   if (document.getElementById('screen-run').classList.contains('active')) {
     appendLog(`ERROR: ${data.message}`, true);
@@ -557,7 +581,9 @@ document.getElementById('mgf-clear-btn').addEventListener('click', clearMgfOverr
 
 document.getElementById('skip-btn').addEventListener('click', () => runAction('/api/skip', 'skip segment'));
 document.getElementById('add-time-btn').addEventListener('click', () => runAction('/api/add_time', 'add 5 min'));
-document.getElementById('add-temp-btn').addEventListener('click', () => runAction('/api/add_temp', 'add 3°C'));
+document.getElementById('add-temp-btn').addEventListener('click', () =>
+  runAction('/api/add_temp', `add ${TEMP_UNIT === 'C' ? '3°C' : '5°F'}`)
+);
 document.getElementById('stop-btn').addEventListener('click', stopFiring);
 
 document.getElementById('editor-back-btn').addEventListener('click', openCustom);
@@ -609,3 +635,4 @@ document.getElementById('settings-header-icon').innerHTML = svgIcon('gear', 22);
 document.getElementById('mgf-icon').innerHTML = svgIcon('wrench', 18);
 
 goHome();
+loadSettings();

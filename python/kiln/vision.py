@@ -298,12 +298,17 @@ class KilnVision(abc.ABC):
         to IdLE and retry" (see docs/architecture.md).
         """
 
+        # The timeout starts after the first reading, so opening the camera
+        # (RealVision lets it settle for several seconds) doesn't use it up.
+        state = self.read()
+        if predicate(state):
+            return state
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
+            time.sleep(poll_interval_s)
             state = self.read()
             if predicate(state):
                 return state
-            time.sleep(poll_interval_s)
         return None
 
 

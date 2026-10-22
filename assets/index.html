@@ -57,7 +57,7 @@
       <div id="mgf-section" hidden>
         <h3>Adjust Process (like the controller's MGF, but remembered)</h3>
         <div class="row wrap mgf-row">
-          <label class="field-label">Peak &deg;C <input id="mgf-temp" type="number" /></label>
+          <label class="field-label">Peak <span class="temp-unit">&deg;C</span> <input id="mgf-temp" type="number" /></label>
           <label class="field-label">Hold min <input id="mgf-hold" type="number" /></label>
           <button id="mgf-save-btn">Save</button>
           <button id="mgf-clear-btn">Factory Default</button>
@@ -86,7 +86,7 @@
       <div class="row wrap">
         <button class="icon-btn" id="skip-btn"><span id="skip-icon"></span> Skip Segment</button>
         <button class="icon-btn" id="add-time-btn"><span id="add-time-icon"></span> +5 min</button>
-        <button class="icon-btn" id="add-temp-btn"><span id="add-temp-icon"></span> +3&deg;C</button>
+        <button class="icon-btn" id="add-temp-btn"><span id="add-temp-icon"></span> <span id="add-temp-step">+3&deg;C</span></button>
       </div>
       <div class="log" id="run-log"></div>
       <button class="danger" id="stop-btn">STOP</button>
@@ -104,8 +104,8 @@
       <table class="segment-editor" id="editor-table">
         <thead>
           <tr>
-            <th>Rate (&deg;C/hr)</th>
-            <th>Target Temp (&deg;C)</th>
+            <th>Rate (<span class="temp-unit">&deg;C</span>/hr)</th>
+            <th>Target Temp (<span class="temp-unit">&deg;C</span>)</th>
             <th>Hold (min)</th>
             <th></th>
           </tr>
@@ -126,6 +126,7 @@
       <h2><span id="settings-header-icon"></span> Settings</h2>
       <p class="status-line" id="settings-bridge-status">Bridge: unknown</p>
       <button class="icon-btn" id="mgf-toggle-btn"><span id="mgf-icon"></span> Toggle Modify GlassFire Mode (MGF)</button>
+      <p class="status-line" id="scale-current">Temperature unit: &deg;C</p>
       <div class="row">
         <button id="scale-f-btn">Set &deg;F</button>
         <button id="scale-c-btn">Set &deg;C</button>

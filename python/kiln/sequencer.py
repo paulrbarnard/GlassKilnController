@@ -32,6 +32,7 @@ from kiln.protocol import (
     Speed,
 )
 from kiln.vision import ControllerState, KilnVision
+from kiln.settings import f_to_c, rate_f_to_c
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,13 @@ class ControllerErrorState(SequenceError):
 
 ProgressCallback = Callable[[str], None]
 
+_MODE_MESSAGES = (
+    DisplayMessage.AUTO,
+    DisplayMessage.PRO,
+    DisplayMessage.LOAD,
+    DisplayMessage.OPTIONS,
+)
+
 
 @dataclass
 class Sequencer:
@@ -76,6 +84,11 @@ class Sequencer:
     # controller has no way to report this via display, so a mismatch here
     # just costs an extra (harmless) unlock attempt, never a wrong press.
     level: ProgrammingLevel = ProgrammingLevel.BEGINNER
+    # The unit the GM LT is set to. Profiles are stored in °F, so every
+    # temperature and rate is converted to this unit before it's dialled in
+    # (the controller itself only ever sees its own unit). Kept in step with
+    # the app's settings by set_temperature_scale().
+    controller_celsius: bool = True
 
     def _progress(self, message: str) -> None:
         log.info(message)
@@ -83,6 +96,15 @@ class Sequencer:
             self.on_progress(message)
 
     # -- low-level helpers --------------------------------------------------
+
+    def _controller_temp(self, temp_f: float) -> float:
+        """A °F temperature in the controller's unit, rounded to a whole
+        degree (the controller only takes whole degrees)."""
+
+        return float(round(f_to_c(temp_f) if self.controller_celsius else temp_f))
+
+    def _controller_rate(self, rate_f_per_hr: float) -> float:
+        return float(round(rate_f_to_c(rate_f_per_hr) if self.controller_celsius else rate_f_per_hr))
 
     def _press(self, key: Key) -> None:
         self.bridge.press(key)
@@ -232,14 +254,47 @@ class Sequencer:
         self.level = ProgrammingLevel.BEGINNER
 
     def select_mode(self, mode: Mode) -> None:
-        if mode in (Mode.PRO, Mode.LOAD, Mode.OPTIONS):
-            self.ensure_advanced_unlocked()
-        else:
-            self.goto_idle()
-        self._press(Key.ENTER)
+        """Open the mode menu from IdLE and select ``mode``.
+
+        The level is read off the controller rather than assumed: on
+        Advanced the menu loops Pro/LoAd/OPt/AUto, on Beginner it only offers
+        AUto, so UP can't move it. Only if scrolling to an Advanced mode
+        fails is the level unlocked (hold UP at IdLE) and the menu retried.
+        """
+
         target = DisplayMessage(mode.value)
-        self._scroll_to(target)
-        self._press(Key.ENTER)
+        for attempt in range(2):
+            self.goto_idle()
+            self._press(Key.ENTER)
+            self._wait_for(
+                lambda s: s.message in _MODE_MESSAGES, description="mode menu"
+            )
+            try:
+                self._scroll_to(target)
+            except SequenceError:
+                if attempt or mode is Mode.AUTO:
+                    raise
+                self.level = ProgrammingLevel.BEGINNER
+                self.ensure_advanced_unlocked()
+                continue
+            if mode is not Mode.AUTO:
+                self.level = ProgrammingLevel.ADVANCED
+            self._press(Key.ENTER)
+            return
+
+    def _require_idle(self, action: str, timeout_s: float = 3.0) -> None:
+        """Refuse to start an Options action unless the controller shows
+        IdLE. Getting to Options starts with "hold ENTER" (back to IdLE),
+        which would stop a firing in progress."""
+
+        state = self.vision.wait_for(
+            lambda s: s.message is DisplayMessage.IDLE, timeout_s
+        )
+        if state is None:
+            raise SequenceError(
+                f"not {action}: the controller isn't showing IdLE "
+                "(firing, or in a menu); return it to IdLE first"
+            )
 
     # -- AUTO / GlassFire (p.14-15) ------------------------------------------
 
@@ -273,7 +328,7 @@ class Sequencer:
             self._progress("MGF active: confirming process temperature/hold")
             if temp_override_f is not None:
                 self._press(Key.UP)  # stop flashing
-                self._dial_numeric(temp_override_f)
+                self._dial_numeric(self._controller_temp(temp_override_f))
             self._press(Key.ENTER)
             self._wait_for(
                 lambda s: s.numeric_value is not None, description="hold time prompt"
@@ -309,13 +364,13 @@ class Sequencer:
                 and s.segment_number == i,
                 description=f"rate prompt segment {i}",
             )
-            self._dial_numeric(seg.rate_f_per_hr, tolerance=1.0)
+            self._dial_numeric(self._controller_rate(seg.rate_f_per_hr), tolerance=1.0)
             self._press(Key.ENTER)
 
             self._wait_for(
                 lambda s: s.numeric_value is not None, description="temperature prompt"
             )
-            self._dial_numeric(seg.target_temp_f, tolerance=1.0)
+            self._dial_numeric(self._controller_temp(seg.target_temp_f), tolerance=1.0)
             self._press(Key.ENTER)
 
             self._wait_for(
@@ -372,6 +427,7 @@ class Sequencer:
     # sequence against real hardware and tighten this once confirmed.
 
     def toggle_mgf(self) -> None:
+        self._require_idle("toggling MGF")
         self._progress("toggling Modify GlassFire mode")
         self.select_mode(Mode.OPTIONS)
         self._scroll_to(DisplayMessage.MGF)
@@ -381,6 +437,7 @@ class Sequencer:
         self.goto_idle()
 
     def set_temperature_scale(self, celsius: bool) -> None:
+        self._require_idle("changing the temperature scale")
         self._progress(f"setting temperature scale: {'C' if celsius else 'F'}")
         self.select_mode(Mode.OPTIONS)
         self._scroll_to(DisplayMessage.CHANGE_SCALE)
@@ -388,6 +445,7 @@ class Sequencer:
         target = DisplayMessage.DEG_C if celsius else DisplayMessage.DEG_F
         self._scroll_to(target)
         self._press(Key.ENTER)
+        self.controller_celsius = celsius
         self.goto_idle()
 
     def factory_reset(self) -> None:
@@ -396,6 +454,7 @@ class Sequencer:
         confirmation before invoking this — the sequencer itself does not
         prompt."""
 
+        self._require_idle("factory resetting")
         self._progress("factory reset")
         self.select_mode(Mode.OPTIONS)
         self._scroll_to(DisplayMessage.RESET)
@@ -453,8 +512,9 @@ class Sequencer:
         """Adds 5°F (3°C) to the segment-2 process temperature per
         increment (p.22). Only valid while the display reads HLd2."""
 
+        step = "+3°C" if self.controller_celsius else "+5°F"
         for _ in range(increments):
-            self._progress("add temperature (+5°F)")
+            self._progress(f"add temperature ({step})")
             self._enter_edit_prompt(EDIT_PROMPT_WINDOW_ADD_SECONDS)
             self._wait_for(
                 lambda s: s.message is DisplayMessage.SKIP_SEGMENT,

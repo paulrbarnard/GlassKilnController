@@ -130,3 +130,65 @@ def test_scroll_presses_again_when_a_press_does_not_register(monkeypatch):
     # First UP was ignored and retried; then one more UP: Pro -> LoAd -> 0Pt.
     assert fake.presses == [Key.UP, Key.UP, Key.UP]
     assert fake.read().message is DisplayMessage.OPTIONS
+
+
+def test_temperatures_and_rates_are_dialled_in_the_controller_unit():
+    sequencer, _ = make_sequencer(["IdLE"])
+    sequencer.controller_celsius = True
+    assert sequencer._controller_temp(1465.0) == 796.0  # Full Fuse
+    assert sequencer._controller_rate(600.0) == 333.0  # Medium segment 2
+    sequencer.controller_celsius = False
+    assert sequencer._controller_temp(1465.0) == 1465.0
+    assert sequencer._controller_rate(600.0) == 600.0
+
+
+def test_options_actions_refuse_unless_idle():
+    import pytest
+    from kiln.sequencer import SequenceError
+
+    # Mid-firing the display shows temperatures, never IdLE.
+    sequencer, bridge = make_sequencer(["  796."])
+    sequencer.vision.wait_for = lambda predicate, timeout_s, poll_interval_s=0.15: None
+    with pytest.raises(SequenceError, match="isn't showing IdLE"):
+        sequencer.set_temperature_scale(celsius=True)
+    assert bridge.presses == []  # nothing pressed, so no hold-ENTER stop
+
+
+def test_select_mode_unlocks_only_when_the_menu_will_not_scroll(monkeypatch):
+    import kiln.sequencer as seq
+    from kiln.protocol import DisplayMessage, ProgrammingLevel
+
+    monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
+
+    class Beginner(_MenuController):
+        """Only AUto until UP is held at IdLE, then the full loop."""
+
+        def __init__(self):
+            super().__init__(["IdLE"], ignore_presses=set())
+            self.unlocked = False
+
+        def press(self, key, hold_ms=SHORT_PRESS_MS):
+            self.presses.append((key, hold_ms))
+            if hold_ms >= LONG_MS:
+                if key is Key.ENTER:
+                    self.options, self.index = ["IdLE"], 0
+                elif key is Key.UP:
+                    self.unlocked = True
+            elif key is Key.ENTER and self.options == ["IdLE"]:
+                self.options = ["Pro", "LoAd", "0Pt", "AUto"] if self.unlocked else ["AUto"]
+                self.index = 0
+            elif key is Key.UP:
+                self.index = (self.index + 1) % len(self.options)
+
+        def hold_long(self, key):
+            self.press(key, LONG_MS)
+
+    fake = Beginner()
+    sequencer = Sequencer(bridge=fake, vision=fake)
+    sequencer.select_mode(seq.Mode.LOAD)
+    assert (Key.UP, LONG_MS) in fake.presses  # had to unlock
+    assert sequencer.level is ProgrammingLevel.ADVANCED
+
+    fake.presses.clear()
+    sequencer.select_mode(seq.Mode.LOAD)
+    assert (Key.UP, LONG_MS) not in fake.presses  # already Advanced: no unlock

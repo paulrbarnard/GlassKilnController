@@ -104,11 +104,13 @@ def main() -> int:
 
     from kiln.profiles import ProfileLibrary
     from kiln.sequencer import Sequencer
+    from kiln.settings import AppSettings
     from web.api import register_routes
 
     bridge = build_bridge(args.mock_bridge)
     vision = build_vision(args.mock_vision, args.mock_script)
     library = ProfileLibrary().load()
+    settings = AppSettings.load()
     sequencer = Sequencer(bridge=bridge, vision=vision, on_progress=logging.info)
 
     if not bridge.ping():
@@ -129,7 +131,7 @@ def main() -> int:
             def send_message(self, event: str, data: dict) -> None:
                 logging.info("would push %s: %s", event, data)
 
-        register_routes(_PrintingUI(), sequencer, library)
+        register_routes(_PrintingUI(), sequencer, library, settings)
         logging.info(
             "dev mode OK: %d profiles loaded, routes registered against a fake ui",
             len(library.all()),
@@ -140,7 +142,7 @@ def main() -> int:
     from arduino.app_utils import App  # type: ignore
 
     ui = WebUI()
-    register_routes(ui, sequencer, library)
+    register_routes(ui, sequencer, library, settings)
     App.run()  # blocks until the app is stopped
     return 0
 

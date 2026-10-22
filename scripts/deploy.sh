@@ -6,8 +6,8 @@
 #
 # HOST defaults to the ssh alias "steffi" (arduino@192.168.0.74).
 # The board has no rsync, so this streams a tar over ssh. User-created
-# profiles (python/profiles/user/) live only on the board and are never
-# overwritten. The first deploy also makes this the default app, so it
+# profiles (python/profiles/user/) and app settings (python/state/) live
+# only on the board and are never overwritten. The first deploy also makes this the default app, so it
 # starts on boot (see docs/hardware.md).
 set -euo pipefail
 
@@ -28,7 +28,7 @@ COPYFILE_DISABLE=1 tar -C "$ROOT" -czf - \
   --exclude .git --exclude .venv --exclude venv --exclude .cache \
   --exclude __pycache__ --exclude .pytest_cache --exclude .claude \
   --exclude .DS_Store --exclude sketch/build \
-  --exclude python/profiles/user \
+  --exclude python/profiles/user --exclude python/state \
   . | ssh "$HOST" "mkdir -p ~/$REMOTE_DIR && tar -xzf - -C ~/$REMOTE_DIR --no-same-owner 2>/dev/null"
 
 if [[ $restart == 1 ]]; then

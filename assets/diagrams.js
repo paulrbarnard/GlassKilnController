@@ -10,10 +10,40 @@
 const ROOM_TEMP_F = 75;
 
 // All segment data (from the API, and everything in this file's math) is
-// in Fahrenheit — that's what the GM LT manual, the factory GlassFire
-// tables, and the physical controller's own button-press programming are
-// specified in (see kiln/protocol.py). °C is a *display-only* conversion
-// applied at the last moment, here and in app.js, never stored.
+// in Fahrenheit — that's what the GM LT manual and the factory GlassFire
+// tables are specified in (see kiln/protocol.py). What the user sees and
+// types is in the app's chosen unit (Settings; GET /api/settings), applied
+// at the last moment by showTemp/showRate/readTemp/readRate below and in
+// app.js, never stored. The sequencer converts again for the controller.
+let TEMP_UNIT = 'C';
+
+function setTempUnit(unit) {
+  TEMP_UNIT = unit === 'F' ? 'F' : 'C';
+}
+
+// "°C" or "°F", for labels.
+function tempUnitLabel() {
+  return `°${TEMP_UNIT}`;
+}
+
+// °F (stored) -> the chosen unit, for display.
+function showTemp(f) {
+  return TEMP_UNIT === 'C' ? fToC(f) : f;
+}
+
+function showRate(fPerHr) {
+  return TEMP_UNIT === 'C' ? rateFToC(fPerHr) : fPerHr;
+}
+
+// The chosen unit (typed by the user) -> °F, for the API.
+function readTemp(value) {
+  return TEMP_UNIT === 'C' ? cToF(value) : value;
+}
+
+function readRate(value) {
+  return TEMP_UNIT === 'C' ? rateCToF(value) : value;
+}
+
 function fToC(f) {
   return ((f - 32) * 5) / 9;
 }
@@ -130,8 +160,8 @@ function drawRampDiagram(canvas, segments, currentSegmentIndex = null, options =
     ctx.font = 'bold 17px system-ui, sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText(`${fToC(maxTemp).toFixed(0)}°C`, marginLeft - 8, marginTop);
-    ctx.fillText(`${fToC(minTemp).toFixed(0)}°C`, marginLeft - 8, marginTop + plotH - 18);
+    ctx.fillText(`${showTemp(maxTemp).toFixed(0)}${tempUnitLabel()}`, marginLeft - 8, marginTop);
+    ctx.fillText(`${showTemp(minTemp).toFixed(0)}${tempUnitLabel()}`, marginLeft - 8, marginTop + plotH - 18);
     ctx.textAlign = 'left';
     ctx.fillText('0h', marginLeft, marginTop + plotH + 8);
     ctx.textAlign = 'right';
@@ -169,10 +199,10 @@ function drawRampDiagram(canvas, segments, currentSegmentIndex = null, options =
       const [mx, my] = toXY({ hours: (prev.hours + cur.hours) / 2, tempF: (prev.tempF + cur.tempF) / 2 });
       ctx.font = '16px system-ui, sans-serif';
       ctx.textBaseline = rising ? 'bottom' : 'top';
-      ctx.fillText(`${rateFToC(seg.rate_f_per_hr).toFixed(0)}°C/hr`, mx, my + (rising ? -6 : 6));
+      ctx.fillText(`${showRate(seg.rate_f_per_hr).toFixed(0)}${tempUnitLabel()}/hr`, mx, my + (rising ? -6 : 6));
 
       const [ex, ey] = toXY(cur);
-      const tempLabel = `${fToC(cur.tempF).toFixed(0)}°C`;
+      const tempLabel = `${showTemp(cur.tempF).toFixed(0)}${tempUnitLabel()}`;
       const vertexLabel = seg.hold_minutes ? `${tempLabel}, ${formatDuration(seg.hold_minutes)} hold` : tempLabel;
       ctx.font = 'bold 17px system-ui, sans-serif';
       ctx.textBaseline = rising ? 'bottom' : 'top';
@@ -201,7 +231,8 @@ function describeSegments(segments) {
   return segments
     .map((seg, i) => {
       const hold = seg.hold_minutes ? `, hold ${seg.hold_minutes.toFixed(0)} min` : '';
-      return `${i + 1}. Ramp at ${rateFToC(seg.rate_f_per_hr).toFixed(0)}°C/hr to ${fToC(seg.target_temp_f).toFixed(0)}°C${hold}`;
+      const unit = tempUnitLabel();
+      return `${i + 1}. Ramp at ${showRate(seg.rate_f_per_hr).toFixed(0)}${unit}/hr to ${showTemp(seg.target_temp_f).toFixed(0)}${unit}${hold}`;
     })
     .join('\n');
 }

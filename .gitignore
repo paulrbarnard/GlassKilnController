@@ -26,3 +26,6 @@ sketch/build/
 # Reference frames saved on the board by scripts/read_display.py --save;
 # copy the ones worth keeping into python/tests/fixtures/ instead.
 reference/
+
+# App settings saved on the board (python/kiln/settings.py).
+python/state/

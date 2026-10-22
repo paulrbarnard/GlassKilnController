@@ -185,3 +185,52 @@ def test_save_profile_rejects_beyond_cap(tmp_path):
         assert "error" not in result
     result = make_custom(ui, "one_too_many")
     assert "error" in result
+
+
+def _wait_for_threads(seconds=2.0):
+    import threading
+
+    deadline = time.monotonic() + seconds
+    while threading.active_count() > 1 and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+
+def test_temperature_unit_is_saved_only_after_the_controller_changes(tmp_path):
+    from kiln.sequencer import SequenceError
+    from kiln.settings import AppSettings
+
+    bridge = MockBridge(press_delay_s=0.0)
+    sequencer = Sequencer(bridge=bridge, vision=MockVision(script=["IdLE"]))
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    settings_path = tmp_path / "settings.json"
+    ui = FakeUI()
+    register_routes(ui, sequencer, library, AppSettings(), settings_path)
+    assert ui.call("GET", "/api/settings") == {"temperature_scale": "C"}
+    assert sequencer.controller_celsius is True
+
+    calls = []
+    sequencer.set_temperature_scale = lambda celsius: calls.append(celsius)
+    assert ui.call("POST", "/api/settings/scale", body={"celsius": False})["ok"] is True
+    _wait_for_threads()
+    assert calls == [False]
+    assert ui.call("GET", "/api/settings") == {"temperature_scale": "F"}
+    assert AppSettings.load(settings_path).temperature_scale == "F"
+    assert ("settings", {"temperature_scale": "F"}) in ui.messages
+
+    def refuse(celsius):
+        raise SequenceError("not changing the temperature scale: the controller isn't showing IdLE")
+
+    sequencer.set_temperature_scale = refuse
+    ui.call("POST", "/api/settings/scale", body={"celsius": True})
+    _wait_for_threads()
+    assert ui.call("GET", "/api/settings") == {"temperature_scale": "F"}  # unchanged
+    assert AppSettings.load(settings_path).temperature_scale == "F"
+    assert any(event == "error" and "IdLE" in data["message"] for event, data in ui.messages)
+
+
+def test_settings_load_defaults_to_celsius(tmp_path):
+    from kiln.settings import AppSettings
+
+    assert AppSettings.load(tmp_path / "missing.json").temperature_scale == "C"
+    (tmp_path / "bad.json").write_text("{not json")
+    assert AppSettings.load(tmp_path / "bad.json").temperature_scale == "C"
