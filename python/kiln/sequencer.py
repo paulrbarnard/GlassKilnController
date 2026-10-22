@@ -481,6 +481,7 @@ class Sequencer:
     # -- Profile entry point --------------------------------------------------
 
     def run_profile(self, profile: Profile) -> None:
+        self.check_controller_unit()
         if profile.kind is ProfileKind.GLASSFIRE:
             assert profile.glassfire is not None
             self.run_glassfire(
@@ -552,10 +553,41 @@ class Sequencer:
             )
             self._scroll_to(target, state=state)
             self._press(Key.ENTER)
-            self.controller_celsius = celsius
             self.goto_idle()
 
-        self._backing_out_on_failure(action)
+        # The final ENTER can't be checked on its own screen, so check the
+        # result: a missed press once reported °C while the controller
+        # stayed in °F. Try once more before giving up.
+        for attempt in range(2):
+            self._backing_out_on_failure(action)
+            if self.read_controller_celsius() == celsius:
+                self.controller_celsius = celsius
+                return
+            self._progress("the controller didn't take the change; trying again")
+        raise SequenceError(
+            f"the controller is still not in °{'C' if celsius else 'F'} after two tries"
+        )
+
+    def read_controller_celsius(self, timeout_s: float = 3.0) -> Optional[bool]:
+        """Which unit the controller is in, from its °C indicator dot; None
+        if the display shows nothing readable (e.g. the kiln is off)."""
+
+        state = self.vision.wait_for(lambda s: s.shows_celsius is not None, timeout_s)
+        return None if state is None else state.shows_celsius
+
+    def check_controller_unit(self) -> None:
+        """Refuse to program anything if the controller's unit isn't the
+        one the app dials values in: every temperature would be wrong."""
+
+        shown = self.read_controller_celsius()
+        if shown is None:
+            raise SequenceError("can't tell the controller's unit: is the kiln switched on?")
+        if shown != self.controller_celsius:
+            app, kiln = ("C", "F") if self.controller_celsius else ("F", "C")
+            raise SequenceError(
+                f"the controller is in °{kiln} but the app is set to °{app}; "
+                f"set the unit in Settings first"
+            )
 
     def factory_reset(self) -> None:
         """WIPES stored PRO programs 1-4 and restores the factory casting

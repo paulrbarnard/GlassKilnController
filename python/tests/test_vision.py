@@ -159,3 +159,21 @@ def test_every_vocabulary_token_has_glyphs_and_a_unique_pattern():
         key = tuple("".join(sorted(GLYPHS[c])) for c in message.value)
         assert key not in seen, f"{message} looks the same as {seen.get(key)}"
         seen[key] = message
+
+
+@pytest.mark.parametrize(
+    "raw, celsius",
+    [
+        # The last digit's dot is the GM LT's °C indicator (2026-10-22).
+        ("1dLE.", True),
+        ("Pro .", True),
+        ("12.00.", True),
+        ("1dLE", False),
+        ("  98", False),
+        ("12.00", False),
+        ("    ", None),  # kiln off: nothing to tell from
+        ("1d?E.", None),
+    ],
+)
+def test_celsius_indicator(raw, celsius):
+    assert build_controller_state(raw).shows_celsius is celsius

@@ -702,6 +702,7 @@ document.getElementById('new-profile-btn').addEventListener('click', openNewProf
 document.getElementById('settings-btn').addEventListener('click', () => {
   showScreen('screen-settings');
   refreshBridgeStatus();
+  checkControllerUnit();
 });
 
 document.getElementById('profile-back-btn').addEventListener('click', () => profileBackTarget());
@@ -743,6 +744,22 @@ function setScaleBusy(busy, text) {
   document.getElementById('scale-f-btn').disabled = busy || TEMP_UNIT === 'F';
   document.getElementById('scale-c-btn').disabled = busy || TEMP_UNIT === 'C';
   document.getElementById('scale-current').textContent = text || `Temperature unit: ${tempUnitLabel()}`;
+}
+
+// The controller's own unit, read from its display, can differ from the
+// app's (e.g. changed by hand at the kiln). If so, say so and let the app's
+// unit be set on the controller again.
+async function checkControllerUnit() {
+  try {
+    const { unit } = await api('GET', '/api/settings/controller_unit');
+    if (unit && unit !== TEMP_UNIT) {
+      document.getElementById('scale-current').textContent =
+        `The controller is in °${unit} but the app uses °${TEMP_UNIT}. Tap Set °${TEMP_UNIT} to match.`;
+      document.getElementById(TEMP_UNIT === 'C' ? 'scale-c-btn' : 'scale-f-btn').disabled = false;
+    }
+  } catch (e) {
+    console.warn('controller unit unavailable', e);
+  }
 }
 
 function requestScale(celsius) {

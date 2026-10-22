@@ -274,6 +274,18 @@ def register_routes(
     def get_settings():
         return {"temperature_scale": settings.temperature_scale}
 
+    def controller_unit():
+        """Which unit the GM LT itself is in, read from its °C indicator
+        dot (takes a few seconds if the camera has to start). "unit" is
+        null if the display is blank or the controller is busy."""
+
+        with state.lock:
+            busy = state.busy
+        if busy is not None:
+            return {"unit": None, "busy": busy}
+        shown = sequencer.read_controller_celsius()
+        return {"unit": None if shown is None else ("C" if shown else "F")}
+
     def set_temperature_scale(body: dict):
         """Set the app's temperature unit and the GM LT's to match. The app
         only switches once the controller has, so the two can't disagree
@@ -311,6 +323,7 @@ def register_routes(
     ui.expose_api("GET", "/api/status", status)
     ui.expose_api("POST", "/api/settings/mgf", toggle_mgf)
     ui.expose_api("GET", "/api/settings", get_settings)
+    ui.expose_api("GET", "/api/settings/controller_unit", controller_unit)
     ui.expose_api("POST", "/api/settings/scale", set_temperature_scale)
     ui.expose_api("POST", "/api/settings/reset", factory_reset)
 

@@ -253,3 +253,20 @@ def test_start_is_never_pressed_again_once_firing(monkeypatch):
     with pytest.raises(SequenceError):
         sequencer._start_from_ready()
     assert fake.presses == [Key.ENTER]
+
+
+def test_firing_is_refused_when_the_controller_unit_differs():
+    import pytest
+
+    from kiln.sequencer import SequenceError
+
+    # App in °C, controller in °F (no °C dot): don't program anything.
+    sequencer, bridge = make_sequencer(["1dLE"])
+    sequencer.controller_celsius = True
+    with pytest.raises(SequenceError, match="controller is in °F but the app is set to °C"):
+        sequencer.check_controller_unit()
+    assert bridge.presses == []
+
+    sequencer, _ = make_sequencer(["1dLE."])
+    sequencer.controller_celsius = True
+    sequencer.check_controller_unit()  # matches: no error

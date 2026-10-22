@@ -41,6 +41,18 @@ class ControllerState:
     timestamp: float
 
     @property
+    def shows_celsius(self) -> Optional[bool]:
+        """The GM LT lights the last digit's decimal point on every screen
+        while it's set to °C, and never in °F (seen on the kiln 2026-10-22:
+        "1dLE." / "Pro ." in °C, "1dLE" / "Pro " in °F). None if the display
+        is blank or unreadable, so there's nothing to tell from."""
+
+        text = self.raw_text
+        if not text.replace(".", "").strip() or "?" in text:
+            return None
+        return text.endswith(".")
+
+    @property
     def is_error(self) -> bool:
         from kiln.protocol import ERROR_MESSAGES
 
@@ -155,9 +167,9 @@ def parse_numeric(raw_text: str) -> Optional[float]:
     """Best-effort parse of a plain numeric display (temperature, rate,
     hold H.MM, etc). Returns None if ``raw_text`` isn't purely numeric.
 
-    The decimal point after the last digit is lit on every reading on the
-    real display ("  19.", "12.00.", "Pro ."), so it's a status light, not
-    part of the number, and is dropped.
+    The decimal point after the last digit is the controller's °C
+    indicator (see ControllerState.shows_celsius), not part of the number,
+    so it's dropped.
     """
 
     text = raw_text.strip().replace("°", "")
