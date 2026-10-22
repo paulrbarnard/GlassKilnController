@@ -70,8 +70,8 @@ def test_monitor_notices_a_stop_at_the_kiln(monkeypatch):
 
 
 class IdleController:
-    """Always shows IdLE, so programming stalls at the mode menu: the UP
-    presses never change anything, as if they weren't registering."""
+    """Always shows IdLE, so programming stalls opening the mode menu: the
+    ENTER presses never register, and the sequencer keeps retrying."""
 
     def __init__(self):
         self.bridge = MockBridge(press_delay_s=0.0)
@@ -87,14 +87,14 @@ def test_stop_aborts_programming_then_confirms(tmp_path, monkeypatch):
     register_routes(ui, sequencer, library, settings_path=tmp_path / "s.json")
 
     assert ui.call("POST", "/api/run/{profile_id}", profile_id="full_fuse_slow")["ok"]
-    assert _wait(lambda: any(k is Key.UP for k, _ in kiln.bridge.presses))  # programming
+    short_enters = lambda: [i for i, p in enumerate(kiln.bridge.presses) if p[0] is Key.ENTER and p[1] < LONG_MS]
+    assert _wait(lambda: len(short_enters()) >= 1)  # programming has started
     assert ui.call("POST", "/api/stop")["ok"]
     assert _wait(lambda: ui.call("GET", "/api/firing")["phase"] == "stopped", 10.0)
 
     # The stop's own hold of ENTER comes after the last programming press.
     presses = kiln.bridge.presses
-    last_up = max(i for i, (k, _) in enumerate(presses) if k is Key.UP)
-    assert presses[-1] == (Key.ENTER, LONG_MS) and len(presses) - 1 > last_up
+    assert presses[-1] == (Key.ENTER, LONG_MS) and len(presses) - 1 > max(short_enters())
     assert ("firing", ui.call("GET", "/api/firing")) in ui.messages
 
 

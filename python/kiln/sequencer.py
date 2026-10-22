@@ -173,6 +173,7 @@ class Sequencer:
         target: DisplayMessage,
         max_steps: int = MAX_MENU_SCROLL_STEPS,
         timeout_s: float = DEFAULT_TIMEOUT_S,
+        state: Optional[ControllerState] = None,
     ) -> ControllerState:
         """Assumes the display is already showing one option of a cyclic
         menu; presses UP repeatedly (per the manual's "scroll to X, ENTER"
@@ -181,12 +182,58 @@ class Sequencer:
         legitimately take more than a handful of presses).
         """
 
-        state = self._read()
+        state = state or self._read()
         for _ in range(max_steps):
             if state.message is target:
                 return state
             state = self._press_until_changed(Key.UP, state)
         raise SequenceError(f"couldn't scroll to {target.value} within {max_steps} steps")
+
+    def _enter_from(
+        self,
+        current: DisplayMessage,
+        accept: Optional[Callable[[ControllerState], bool]] = None,
+        attempts: int = MENU_PRESS_ATTEMPTS,
+    ) -> ControllerState:
+        """Press ENTER on ``current`` and wait for the next screen. Press
+        again only if the display still shows ``current`` (at IdLE, also its
+        alternating temperature): that's the only case where a repeat can't
+        select something twice. On the kiln the first try once read IdLE
+        straight after ENTER and failed (2026-10-22)."""
+
+        accept = accept or (lambda s: s.message is not None and s.message is not current)
+        for _ in range(attempts):
+            self._press(Key.ENTER)
+            state = self.vision.wait_for(
+                lambda s: s.is_error or self.abort.is_set() or accept(s),
+                MENU_CHANGE_TIMEOUT_S,
+            )
+            self._check_abort()
+            if state is not None:
+                if state.is_error:
+                    raise ControllerErrorState(state)
+                return state
+            now = self._read()
+            still_there = now.message is current or (
+                current is DisplayMessage.IDLE and now.message is None and now.numeric_value is not None
+            )
+            if not still_there:
+                raise SequenceError(f"unexpected {now.raw_text!r} after ENTER on {current.value}")
+        raise SequenceError(f"ENTER on {current.value} didn't register after {attempts} presses")
+
+    def _start_from_ready(self, attempts: int = 2) -> ControllerState:
+        """The final ENTER on rEdI starts the firing. Re-press only while the
+        display still shows rEdI: once ON or a temperature is showing, a
+        second ENTER would stop the program."""
+
+        for _ in range(attempts):
+            self._press(Key.ENTER)
+            try:
+                return self._wait_for_firing()
+            except SequenceError:
+                if self._read().message is not DisplayMessage.READY:
+                    raise
+        raise SequenceError(f"ENTER on rEdI didn't register after {attempts} presses")
 
     def _press_until_changed(
         self, key: Key, before: ControllerState, attempts: int = MENU_PRESS_ATTEMPTS
@@ -293,12 +340,11 @@ class Sequencer:
         target = DisplayMessage(mode.value)
         for attempt in range(2):
             self.goto_idle()
-            self._press(Key.ENTER)
-            self._wait_for(
-                lambda s: s.message in _MODE_MESSAGES, description="mode menu"
+            state = self._enter_from(
+                DisplayMessage.IDLE, accept=lambda s: s.message in _MODE_MESSAGES
             )
             try:
-                self._scroll_to(target)
+                self._scroll_to(target, state=state)
             except SequenceError:
                 if attempt or mode is Mode.AUTO:
                     raise
@@ -335,22 +381,22 @@ class Sequencer:
     ) -> None:
         self._progress(f"programming GlassFire: {process.value}/{speed.value}")
         self.goto_idle()
-        self._press(Key.ENTER)
-        self._scroll_to(DisplayMessage.AUTO)
-        self._press(Key.ENTER)
+        state = self._enter_from(DisplayMessage.IDLE, accept=lambda s: s.message in _MODE_MESSAGES)
+        self._scroll_to(DisplayMessage.AUTO, state=state)
+        state = self._enter_from(DisplayMessage.AUTO)
 
-        self._scroll_to(DisplayMessage(speed.value))
-        self._press(Key.ENTER)
-
-        self._scroll_to(DisplayMessage(process.value))
-        self._press(Key.ENTER)
+        speed_msg = DisplayMessage(speed.value)
+        self._scroll_to(speed_msg, state=state)
+        state = self._enter_from(speed_msg)
 
         # Whether MGF is on determines what happens next: either the
         # process temp/hold prompts (flashing values, p.15 step 5) or
         # straight to rEdI. Either is valid; branch on what we actually see.
-        state = self._wait_for(
-            lambda s: s.message is DisplayMessage.READY or s.numeric_value is not None,
-            description="rEdI or MGF temperature prompt",
+        process_msg = DisplayMessage(process.value)
+        self._scroll_to(process_msg, state=state)
+        state = self._enter_from(
+            process_msg,
+            accept=lambda s: s.message is DisplayMessage.READY or s.numeric_value is not None,
         )
         if state.message is not DisplayMessage.READY:
             self._progress("MGF active: confirming process temperature/hold")
@@ -368,8 +414,7 @@ class Sequencer:
             self._wait_for_message(DisplayMessage.READY)
 
         self._progress("ready — starting")
-        self._press(Key.ENTER)
-        self._wait_for_firing()
+        self._start_from_ready()
 
     # -- PRO / Ramp & Hold (p.18-19) -----------------------------------------
 
@@ -414,8 +459,7 @@ class Sequencer:
 
         self._wait_for_message(DisplayMessage.READY)
         self._progress("ready — starting")
-        self._press(Key.ENTER)
-        self._wait_for_firing()
+        self._start_from_ready()
 
     def load_program(self, slot: int, start: bool = True) -> None:
         if not 1 <= slot <= 5:
@@ -426,8 +470,7 @@ class Sequencer:
         self._press(Key.ENTER)
         self._wait_for_message(DisplayMessage.READY)
         if start:
-            self._press(Key.ENTER)
-            self._wait_for_firing()
+            self._start_from_ready()
 
     # -- Profile entry point --------------------------------------------------
 

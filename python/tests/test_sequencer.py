@@ -192,3 +192,62 @@ def test_select_mode_unlocks_only_when_the_menu_will_not_scroll(monkeypatch):
     fake.presses.clear()
     sequencer.select_mode(seq.Mode.LOAD)
     assert (Key.UP, LONG_MS) not in fake.presses  # already Advanced: no unlock
+
+
+class _ScreenController:
+    """Bridge + vision fake: ENTER moves through ``screens`` in order, except
+    on the press numbers in ``ignore`` (as if the membrane missed them)."""
+
+    def __init__(self, screens, ignore=()):
+        self.screens, self.ignore, self.i, self.presses = screens, set(ignore), 0, []
+
+    def press(self, key, hold_ms=SHORT_PRESS_MS):
+        self.presses.append(key)
+        if key is Key.ENTER and len(self.presses) not in self.ignore:
+            self.i = min(self.i + 1, len(self.screens) - 1)
+
+    def ping(self):
+        return True
+
+    def read(self):
+        from kiln.vision import build_controller_state
+
+        return build_controller_state(self.screens[self.i])
+
+    def wait_for(self, predicate, timeout_s, poll_interval_s=0.0):
+        state = self.read()
+        return state if predicate(state) else None
+
+
+def test_enter_is_pressed_again_only_while_the_screen_has_not_changed(monkeypatch):
+    import kiln.sequencer as seq
+    from kiln.protocol import DisplayMessage
+
+    monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
+    fake = _ScreenController(["1dLE.", "Pro ."], ignore={1})
+    sequencer = Sequencer(bridge=fake, vision=fake)
+    state = sequencer._enter_from(DisplayMessage.IDLE, accept=lambda s: s.message is not None and s.message is not DisplayMessage.IDLE)
+    assert state.message is DisplayMessage.PRO
+    assert fake.presses == [Key.ENTER, Key.ENTER]
+
+
+def test_start_is_never_pressed_again_once_firing(monkeypatch):
+    import pytest
+
+    import kiln.sequencer as seq
+    from kiln.sequencer import SequenceError
+
+    monkeypatch.setattr(seq, "DEFAULT_TIMEOUT_S", 0.0)
+    # rEdI -> first ENTER missed -> second ENTER starts it: two presses.
+    fake = _ScreenController(["rEd1.", "  25."], ignore={1})
+    sequencer = Sequencer(bridge=fake, vision=fake)
+    sequencer._start_from_ready()
+    assert fake.presses == [Key.ENTER, Key.ENTER]
+
+    # Something other than rEdI or a temperature after ENTER (here StOP):
+    # no second press, report it instead.
+    fake = _ScreenController(["rEd1.", "5t0P."])
+    sequencer = Sequencer(bridge=fake, vision=fake)
+    with pytest.raises(SequenceError):
+        sequencer._start_from_ready()
+    assert fake.presses == [Key.ENTER]
