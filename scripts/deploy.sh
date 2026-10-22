@@ -37,6 +37,12 @@ if [[ $restart == 1 ]]; then
   # Running" and leaves it stopped. Stop and start separately instead.
   ssh "$HOST" "arduino-app-cli app stop ~/$REMOTE_DIR || true; arduino-app-cli app start ~/$REMOTE_DIR"
   ssh "$HOST" "arduino-app-cli properties set default ~/$REMOTE_DIR"
+  # The kiosk keeps the page it loaded at boot, so it would go on running
+  # the old JavaScript. Relaunch it (if it's running) to load the new one.
+  echo "==> reloading the kiosk browser"
+  ssh "$HOST" "pgrep -x chromium >/dev/null && { pkill -x chromium; sleep 2; \
+    DISPLAY=:0 XAUTHORITY=/home/arduino/.Xauthority setsid nohup sh ~/$REMOTE_DIR/scripts/kiosk.sh \
+    >/tmp/kiosk.log 2>&1 </dev/null & } ; true"
 fi
 
 echo "==> done: http://192.168.0.74:7000"
