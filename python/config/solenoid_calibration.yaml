@@ -17,17 +17,30 @@
 # The unloaded hold test above was misleading: a membrane dome needs most
 # of the solenoid's force to stay closed long enough to register.
 #
+#   settle_ms       long presses (the 5 s holds) drop to long_hold_duty
+#   long_hold_duty  after this long: once the dome has closed it needs much
+#                   less force to stay closed, and 5 s at 240 heated the
+#                   coil. Tested 2026-10-22 with 5 s ENTER holds at IdLE:
+#                   120 and 80 held (StOP), 50 let the dome lift (seen as a
+#                   short press). 100 leaves margin.
+#
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
 
 enter:
   kick_ms: 100
   hold_duty: 240
+  settle_ms: 500
+  long_hold_duty: 100
 
 up:
   kick_ms: 100
   hold_duty: 240
+  settle_ms: 500
+  long_hold_duty: 100
 
 down:
   kick_ms: 100
   hold_duty: 240
+  settle_ms: 500
+  long_hold_duty: 100

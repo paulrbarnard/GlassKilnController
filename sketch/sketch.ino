@@ -48,11 +48,16 @@ const uint8_t SPARE_PIN = 12;
 int kick_ms[KEY_COUNT] = {100, 100, 100};
 // PWM duty (0-255) used to hold the plunger in after the kick.
 int hold_duty[KEY_COUNT] = {100, 100, 100};
+// Long presses (the 5 s "hold" actions) drop to a lower duty once the
+// button has been held for settle_ms: a membrane dome needs less force to
+// stay closed than to close, and 5 s at the full hold duty heats the coil.
+int settle_ms[KEY_COUNT] = {500, 500, 500};
+int long_hold_duty[KEY_COUNT] = {255, 255, 255};  // 255 = no reduction
 
 // Hard cap on a single press. The longest real press is the manual's ~4s
 // "hold until beep"; anything longer is a bug, not a request.
 const int MAX_PRESS_MS = 8000;
-const int DEFAULT_PRESS_MS = 150;  // a short, deliberate tap
+const int DEFAULT_PRESS_MS = 200;  // a short, deliberate tap
 
 static bool key_is_valid(int which) {
   return which >= 0 && which < KEY_COUNT;
@@ -89,10 +94,16 @@ bool press_button(int which, int hold_ms) {
   analogWrite(pin, 255);
   if (hold_ms <= kick_ms[which]) {
     delay(hold_ms);
-  } else {
+  } else if (hold_ms <= settle_ms[which] || long_hold_duty[which] >= hold_duty[which]) {
     delay(kick_ms[which]);
     analogWrite(pin, hold_duty[which]);
     delay(hold_ms - kick_ms[which]);
+  } else {
+    delay(kick_ms[which]);
+    analogWrite(pin, hold_duty[which]);
+    delay(settle_ms[which] - kick_ms[which]);
+    analogWrite(pin, long_hold_duty[which]);
+    delay(hold_ms - settle_ms[which]);
   }
   all_off();
   return true;
@@ -108,6 +119,18 @@ bool configure_solenoid(int which, int kick, int duty) {
   }
   kick_ms[which] = kick;
   hold_duty[which] = duty;
+  return true;
+}
+
+// Long-press tuning: after ``settle`` ms of a press, drop to ``duty``.
+// Like configure_solenoid, re-pushed from solenoid_calibration.yaml at
+// startup.
+bool configure_long_hold(int which, int settle, int duty) {
+  if (!key_is_valid(which) || settle < kick_ms[which] || settle > 2000 || duty < 0 || duty > 255) {
+    return false;
+  }
+  settle_ms[which] = settle;
+  long_hold_duty[which] = duty;
   return true;
 }
 
@@ -131,6 +154,7 @@ void setup() {
   Bridge.begin();
   Bridge.provide_safe("press_button", press_button);
   Bridge.provide_safe("configure_solenoid", configure_solenoid);
+  Bridge.provide_safe("configure_long_hold", configure_long_hold);
   Bridge.provide_safe("ping", ping);
 }
 

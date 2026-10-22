@@ -82,6 +82,8 @@ def _push_solenoid_calibration(bridge) -> None:
         if not cal:
             continue
         bridge.configure(key, cal["kick_ms"], cal["hold_duty"])
+        if "long_hold_duty" in cal:
+            bridge.configure_long_hold(key, cal.get("settle_ms", 500), cal["long_hold_duty"])
 
 
 def build_vision(use_mock: bool, mock_script: str):

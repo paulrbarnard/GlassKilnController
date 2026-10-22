@@ -36,10 +36,10 @@ class Key(Enum):
 # the release never lands just before the beep.
 LONG_PRESS_SECONDS = 5.0
 
-# Default short-press dwell used for a plain tap. 300 ms is what registered
-# reliably on the real membrane buttons (2026-10-22); 150 ms was never
-# tested on them.
-SHORT_PRESS_MS = 300
+# Default short-press dwell used for a plain tap. 300 ms registered
+# reliably on the real membrane buttons (2026-10-22) but is more than they
+# need; 200 ms leaves margin over the 150 ms that also worked.
+SHORT_PRESS_MS = 200
 
 # Timed prompt windows in live Edit Mode (p.21-22). The manual gives two
 # different figures for how long "EdIt" is shown depending on entry point;

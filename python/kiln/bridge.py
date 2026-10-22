@@ -82,6 +82,11 @@ class RealBridge(KilnBridge):
         if not ok:
             raise BridgeError(f"configure_solenoid({key!r}, {kick_ms}, {hold_duty}) rejected by sketch")
 
+    def configure_long_hold(self, key: Key, settle_ms: int, duty: int) -> None:
+        ok = self._bridge.call("configure_long_hold", key.value, settle_ms, duty)
+        if not ok:
+            raise BridgeError(f"configure_long_hold({key!r}, {settle_ms}, {duty}) rejected by sketch")
+
     def ping(self) -> bool:
         try:
             return bool(self._bridge.call("ping"))
