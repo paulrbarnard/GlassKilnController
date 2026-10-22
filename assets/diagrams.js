@@ -225,6 +225,33 @@ function drawRampDiagram(canvas, segments, currentSegmentIndex = null, options =
       ctx.stroke();
     }
   }
+
+  // Live firing overlays (run screen): the measured temperature trace,
+  // [[minutes since start, °F], ...], and a "now" line at elapsedHours.
+  const trace = options.trace || [];
+  if (trace.length) {
+    ctx.fillStyle = current;
+    trace.forEach(([minutes, tempF]) => {
+      const hours = minutes / 60;
+      if (hours > maxHours) return;
+      const [x, y] = toXY({ hours, tempF: Math.min(Math.max(tempF, minTemp), maxTemp) });
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+  if (options.elapsedHours !== undefined && options.elapsedHours !== null) {
+    const hours = Math.min(options.elapsedHours, maxHours);
+    const [x] = toXY({ hours, tempF: minTemp });
+    ctx.strokeStyle = label;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.moveTo(x, marginTop);
+    ctx.lineTo(x, marginTop + plotH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }
 
 function describeSegments(segments) {

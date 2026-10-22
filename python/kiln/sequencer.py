@@ -14,6 +14,7 @@ into ``bridge``/``vision`` directly.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -55,6 +56,11 @@ class SequenceError(RuntimeError):
     retry blindly."""
 
 
+class SequenceAborted(SequenceError):
+    """Raised inside a running sequence when stop() has been requested, so
+    programming stops before its next press instead of carrying on."""
+
+
 class ControllerErrorState(SequenceError):
     """Raised when vision reads one of protocol.ERROR_MESSAGES. The kiln has
     already shut itself off — see docs/controller_protocol.md."""
@@ -89,6 +95,9 @@ class Sequencer:
     # (the controller itself only ever sees its own unit). Kept in step with
     # the app's settings by set_temperature_scale().
     controller_celsius: bool = True
+    # Set by stop() so a sequence running on another thread gives up before
+    # its next press or display wait (see _press/_wait_for).
+    abort: threading.Event = field(default_factory=threading.Event)
 
     def _progress(self, message: str) -> None:
         log.info(message)
@@ -106,7 +115,12 @@ class Sequencer:
     def _controller_rate(self, rate_f_per_hr: float) -> float:
         return float(round(rate_f_to_c(rate_f_per_hr) if self.controller_celsius else rate_f_per_hr))
 
+    def _check_abort(self) -> None:
+        if self.abort.is_set():
+            raise SequenceAborted("stopped by request")
+
     def _press(self, key: Key) -> None:
+        self._check_abort()
         self.bridge.press(key)
 
     def _read(self) -> ControllerState:
@@ -122,16 +136,30 @@ class Sequencer:
         description: str = "expected state",
     ) -> ControllerState:
         def guarded(state: ControllerState) -> bool:
-            if state.is_error:
+            if state.is_error or self.abort.is_set():
                 return True  # let it through so we can raise below
             return predicate(state)
 
+        self._check_abort()
         state = self.vision.wait_for(guarded, timeout_s)
+        self._check_abort()
         if state is None:
             raise SequenceError(f"timed out waiting for: {description}")
         if state.is_error:
             raise ControllerErrorState(state)
         return state
+
+    def _wait_for_firing(self, timeout_s: float = DEFAULT_TIMEOUT_S) -> ControllerState:
+        """After the final ENTER on rEdI: ON shows briefly, then the
+        temperature (p.15). Accept either, so a missed glimpse of ON can't
+        turn a firing that has started into a reported failure."""
+
+        return self._wait_for(
+            lambda s: s.message is DisplayMessage.ON
+            or (s.message is None and s.numeric_value is not None),
+            timeout_s,
+            description="ON or a temperature after starting",
+        )
 
     def _wait_for_message(
         self, message: DisplayMessage, timeout_s: float = DEFAULT_TIMEOUT_S
@@ -341,7 +369,7 @@ class Sequencer:
 
         self._progress("ready — starting")
         self._press(Key.ENTER)
-        self._wait_for_message(DisplayMessage.ON)
+        self._wait_for_firing()
 
     # -- PRO / Ramp & Hold (p.18-19) -----------------------------------------
 
@@ -387,7 +415,7 @@ class Sequencer:
         self._wait_for_message(DisplayMessage.READY)
         self._progress("ready — starting")
         self._press(Key.ENTER)
-        self._wait_for_message(DisplayMessage.ON)
+        self._wait_for_firing()
 
     def load_program(self, slot: int, start: bool = True) -> None:
         if not 1 <= slot <= 5:
@@ -399,7 +427,7 @@ class Sequencer:
         self._wait_for_message(DisplayMessage.READY)
         if start:
             self._press(Key.ENTER)
-            self._wait_for_message(DisplayMessage.ON)
+            self._wait_for_firing()
 
     # -- Profile entry point --------------------------------------------------
 
@@ -462,13 +490,33 @@ class Sequencer:
         self.level = ProgrammingLevel.BEGINNER
         self.goto_idle()
 
-    def stop(self) -> None:
-        """A plain (short) ENTER press stops a running program (p.10, p.12:
-        'StOP' briefly shown). Distinct from goto_idle's 4-second hold,
-        which is the unconditional escape hatch."""
+    def stop(self, attempts: int = 2) -> ControllerState:
+        """Stop the program, whatever the controller is doing, and confirm it.
 
-        self._progress("stopping")
-        self._press(Key.ENTER)
+        Holds ENTER (the manual's "from anywhere back to IdLE", p.8/p.10),
+        which stops a running program; a plain short ENTER also stops one
+        (p.12) but would select something if the controller is in a menu.
+        Success is only reported once the display shows StOP, IdLE or PF;
+        otherwise it holds ENTER again. Any sequence still running on another
+        thread should be aborted first (see ``abort``) so its presses don't
+        interleave with these.
+        """
+
+        for attempt in range(1, attempts + 1):
+            self._progress(f"stopping: holding ENTER (attempt {attempt})")
+            self.bridge.hold_long(Key.ENTER)
+            state = self.vision.wait_for(
+                lambda s: s.message
+                in (DisplayMessage.STOPPED, DisplayMessage.IDLE, DisplayMessage.POWER_FAILURE),
+                8.0,
+            )
+            if state is not None:
+                self._progress(f"stopped: controller shows {state.raw_text.strip()!r}")
+                return state
+        raise SequenceError(
+            "stop not confirmed: the display never showed StOP or IdLE. "
+            "Press STOP/ENTER on the controller by hand."
+        )
 
     # -- Live Edit Mode (p.21-22) — only valid while firing ------------------
 

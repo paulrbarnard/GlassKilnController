@@ -513,3 +513,46 @@ table.segment-editor input {
   background: var(--accent);
   color: #1b1b1f;
 }
+
+/* -- Firing progress ---------------------------------------------------- */
+
+.firing-banner {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #111;
+  font-weight: bold;
+}
+
+.run-status {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.run-status > div {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.run-label {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+#run-phase,
+#run-temp,
+#run-elapsed,
+#run-remaining {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+#stop-btn {
+  flex: 1;
+  font-size: 24px;
+  min-height: 64px;
+}

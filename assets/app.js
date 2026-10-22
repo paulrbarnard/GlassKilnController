@@ -343,13 +343,116 @@ async function startFiring() {
     alert(`Could not start: ${e.message}`);
     return;
   }
-  document.getElementById('run-title').innerHTML = `${svgIcon(processIcon(currentProfile.process), 24)} Firing: ${currentProfile.name}`;
+  firingProfile = currentProfile;
   document.getElementById('run-log').innerHTML = '';
-  showScreen('screen-run');
-  requestAnimationFrame(() =>
-    drawRampDiagram(document.getElementById('run-diagram'), currentProfile.segments)
-  );
+  openRunScreen();
 }
+
+// -- Firing progress -------------------------------------------------------------
+//
+// The backend's FiringMonitor (kiln/firing.py) reads the controller's display
+// while a firing runs and pushes its status as 'firing' messages; GET
+// /api/firing returns the same, so a reloaded page picks the firing up again.
+
+let firingProfile = null; // the profile being fired (with its segments)
+let firingStatus = null;
+
+const ACTIVE_PHASES = ['programming', 'firing', 'stopping'];
+const PHASE_LABELS = {
+  programming: 'Programming',
+  firing: 'Firing',
+  stopping: 'Stopping…',
+  complete: 'Complete',
+  stopped: 'Stopped',
+  error: 'Error',
+  ended: 'Ended',
+};
+
+function firingActive() {
+  return !!firingStatus && ACTIVE_PHASES.includes(firingStatus.phase);
+}
+
+function formatHoursMinutes(hours) {
+  const minutes = Math.max(0, Math.round(hours * 60));
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
+}
+
+function renderFiring() {
+  const st = firingStatus;
+  const banner = document.getElementById('firing-banner');
+  banner.hidden = !firingActive();
+  if (firingActive()) banner.textContent = `Firing in progress: ${st.profile_name} — tap to view`;
+  if (!st || st.phase === 'idle') return;
+
+  const name = (firingProfile && firingProfile.name) || st.profile_name || '';
+  const icon = firingProfile ? svgIcon(processIcon(firingProfile.process), 24) : '';
+  document.getElementById('run-title').innerHTML = `${icon} Firing: ${name}`;
+  document.getElementById('run-phase').textContent = PHASE_LABELS[st.phase] || st.phase;
+  document.getElementById('run-message').textContent = st.message || '';
+  document.getElementById('run-temp').textContent =
+    st.temp !== null && st.temp !== undefined ? `${Math.round(st.temp)}°${st.unit}` : '–';
+
+  let elapsedHours = null;
+  if (st.fired_at) {
+    const end = st.ended_at || Date.now() / 1000;
+    elapsedHours = (end - st.fired_at) / 3600;
+    document.getElementById('run-elapsed').textContent = formatHoursMinutes(elapsedHours);
+  } else {
+    document.getElementById('run-elapsed').textContent = '–';
+  }
+  const segments = firingProfile && firingProfile.segments;
+  const remaining = document.getElementById('run-remaining');
+  if (st.phase === 'firing' && segments && elapsedHours !== null) {
+    // Estimate from the profile's own timeline; the real kiln may lag it.
+    remaining.textContent = `~${formatHoursMinutes(Math.max(0, totalHours(segments) - elapsedHours))}`;
+  } else {
+    remaining.textContent = '–';
+  }
+
+  const stopBtn = document.getElementById('stop-btn');
+  stopBtn.hidden = !firingActive();
+  stopBtn.disabled = st.phase === 'stopping';
+  stopBtn.textContent = st.phase === 'stopping' ? 'Stopping…' : 'STOP';
+  document.getElementById('run-done-btn').hidden = firingActive();
+
+  if (document.getElementById('screen-run').classList.contains('active')) {
+    drawRampDiagram(document.getElementById('run-diagram'), segments || [], null, {
+      elapsedHours: st.phase === 'firing' ? elapsedHours : null,
+      trace: st.trace || [],
+    });
+  }
+}
+
+async function setFiring(status) {
+  firingStatus = status;
+  if (status.profile_id && (!firingProfile || firingProfile.id !== status.profile_id)) {
+    try {
+      firingProfile = await api('GET', `/api/profiles/${status.profile_id}`);
+    } catch (e) {
+      firingProfile = null;
+    }
+  }
+  renderFiring();
+}
+
+function openRunScreen() {
+  showScreen('screen-run');
+  requestAnimationFrame(renderFiring);
+}
+
+async function loadFiring() {
+  try {
+    await setFiring(await api('GET', '/api/firing'));
+    if (firingActive()) openRunScreen(); // e.g. the kiosk restarted mid-firing
+  } catch (e) {
+    console.warn('firing status unavailable', e);
+  }
+}
+
+// Elapsed/remaining keep moving between status messages.
+setInterval(() => {
+  if (firingActive()) renderFiring();
+}, 30000);
 
 // -- Run screen ---------------------------------------------------------------
 
@@ -373,8 +476,13 @@ async function runAction(path, label) {
 
 function stopFiring() {
   if (!confirm('Stop the current program? This cannot be undone.')) return;
+  // Stay on this screen: the status shows "Stopping…" until the controller
+  // confirms StOP/IdLE, then "Stopped" (or an error to act on by hand).
+  if (firingStatus) {
+    firingStatus.phase = 'stopping';
+    renderFiring();
+  }
   runAction('/api/stop', 'stop');
-  goHome();
 }
 
 // -- Editor screen --------------------------------------------------------------
@@ -543,6 +651,10 @@ async function loadSettings() {
   }
 }
 
+ui.on_message('firing', (data) => {
+  setFiring(data);
+});
+
 ui.on_message('settings', (data) => {
   applyTempUnit(data.temperature_scale);
   alert(`Temperature unit is now ${tempUnitLabel()} on the app and the controller.`);
@@ -585,6 +697,8 @@ document.getElementById('add-temp-btn').addEventListener('click', () =>
   runAction('/api/add_temp', `add ${TEMP_UNIT === 'C' ? '3°C' : '5°F'}`)
 );
 document.getElementById('stop-btn').addEventListener('click', stopFiring);
+document.getElementById('run-done-btn').addEventListener('click', goHome);
+document.getElementById('firing-banner').addEventListener('click', openRunScreen);
 
 document.getElementById('editor-back-btn').addEventListener('click', openCustom);
 document.getElementById('editor-add-row-btn').addEventListener('click', () => {
@@ -615,8 +729,8 @@ window.addEventListener('resize', () => {
   if (document.getElementById('screen-profile').classList.contains('active') && currentProfile) {
     drawRampDiagram(document.getElementById('profile-diagram'), currentProfile.segments);
   }
-  if (document.getElementById('screen-run').classList.contains('active') && currentProfile) {
-    drawRampDiagram(document.getElementById('run-diagram'), currentProfile.segments);
+  if (document.getElementById('screen-run').classList.contains('active')) {
+    renderFiring();
   }
   if (document.getElementById('screen-editor').classList.contains('active')) {
     editorRedraw();
@@ -636,3 +750,4 @@ document.getElementById('mgf-icon').innerHTML = svgIcon('wrench', 18);
 
 goHome();
 loadSettings();
+loadFiring();

@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from kiln.firing import FiringMonitor
 from kiln.profiles import Profile, ProfileKind, ProfileLibrary
-from kiln.sequencer import Sequencer, SequenceError
+from kiln.sequencer import Sequencer, SequenceAborted, SequenceError
 from kiln.settings import DEFAULT_PATH as SETTINGS_PATH
 from kiln.settings import AppSettings
 
@@ -62,6 +64,12 @@ def register_routes(
         ui.send_message("progress", {"message": message})
 
     sequencer.on_progress = push_progress
+
+    monitor = FiringMonitor(
+        sequencer.vision,
+        publish=lambda status: ui.send_message("firing", status),
+        celsius=lambda: settings.celsius,
+    )
 
     def run_in_background(task: Callable[[], None]) -> None:
         def guarded() -> None:
@@ -147,14 +155,30 @@ def register_routes(
             return {"error": f"no such profile: {profile_id}"}
 
         with state.lock:
-            if state.running:
+            if state.running or monitor.active:
                 return {"error": "a firing is already in progress"}
             state.running = True
+
+        monitor.begin(profile.id, profile.name)
+        sequencer.abort.clear()
 
         def task() -> None:
             try:
                 sequencer.run_profile(profile)
+                monitor.firing_started()
                 push_progress("Program started successfully — kiln is running.")
+            except SequenceAborted:
+                pass  # stop() is handling it and reports the outcome
+            except SequenceError as exc:
+                # Never leave the controller half-programmed: back out to
+                # IdLE (which also stops it if it did start), then report.
+                push_progress(f"Programming failed ({exc}); returning the controller to IdLE")
+                try:
+                    sequencer.stop()
+                    monitor.finish("error", f"Programming failed and was backed out: {exc}")
+                except SequenceError as stop_exc:
+                    monitor.finish("error", f"Programming failed ({exc}) and backing out failed too: {stop_exc}")
+                raise
             finally:
                 with state.lock:
                     state.running = False
@@ -163,8 +187,34 @@ def register_routes(
         return {"ok": True, "profile": _summary(profile)}
 
     def stop():
-        run_in_background(sequencer.stop)
+        """Stop whatever is happening: abort any programming in progress,
+        then hold ENTER until the display confirms StOP/IdLE."""
+
+        sequencer.abort.set()
+        monitor.stopping()
+
+        def task() -> None:
+            # Let a programming sequence on another thread notice the abort
+            # and finish its current press before we press anything.
+            deadline = time.monotonic() + 15.0
+            while time.monotonic() < deadline:
+                with state.lock:
+                    if not state.running:
+                        break
+                time.sleep(0.2)
+            sequencer.abort.clear()
+            try:
+                result = sequencer.stop()
+            except SequenceError as exc:
+                monitor.finish("error", str(exc))
+                raise
+            monitor.finish("stopped", f"Stopped: the controller shows {result.raw_text.strip()!r}")
+
+        run_in_background(task)
         return {"ok": True}
+
+    def firing_status():
+        return monitor.status()
 
     def skip_segment():
         run_in_background(sequencer.skip_segment)
@@ -225,6 +275,7 @@ def register_routes(
     ui.expose_api("POST", "/api/profiles/{profile_id}/mgf_override", set_mgf_override)
     ui.expose_api("POST", "/api/run/{profile_id}", run_profile)
     ui.expose_api("POST", "/api/stop", stop)
+    ui.expose_api("GET", "/api/firing", firing_status)
     ui.expose_api("POST", "/api/skip", skip_segment)
     ui.expose_api("POST", "/api/add_time", add_time)
     ui.expose_api("POST", "/api/add_temp", add_temperature)

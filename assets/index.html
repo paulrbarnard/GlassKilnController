@@ -11,6 +11,7 @@
     <section id="screen-home" class="screen active">
       <h1><span id="home-icon"></span> Glass Kiln Controller</h1>
       <p class="status-line" id="bridge-status">Bridge: unknown</p>
+      <button class="firing-banner" id="firing-banner" hidden>Firing in progress</button>
       <div class="nav-stack">
         <button class="primary" id="nav-standard-btn">Standard Glass Firing</button>
         <button class="primary" id="nav-custom-btn">Custom Profiles</button>
@@ -82,6 +83,13 @@
     <!-- Run/monitor: live diagram + log + Edit Mode controls + Stop -->
     <section id="screen-run" class="screen">
       <h2 id="run-title"></h2>
+      <div class="run-status" id="run-status">
+        <div><span class="run-label">Status</span><span id="run-phase">Starting</span></div>
+        <div><span class="run-label">Kiln</span><span id="run-temp">&ndash;</span></div>
+        <div><span class="run-label">Elapsed</span><span id="run-elapsed">&ndash;</span></div>
+        <div><span class="run-label">Remaining</span><span id="run-remaining">&ndash;</span></div>
+      </div>
+      <p class="status-line" id="run-message"></p>
       <div class="diagram-wrap"><canvas id="run-diagram"></canvas></div>
       <div class="row wrap">
         <button class="icon-btn" id="skip-btn"><span id="skip-icon"></span> Skip Segment</button>
@@ -89,7 +97,10 @@
         <button class="icon-btn" id="add-temp-btn"><span id="add-temp-icon"></span> <span id="add-temp-step">+3&deg;C</span></button>
       </div>
       <div class="log" id="run-log"></div>
-      <button class="danger" id="stop-btn">STOP</button>
+      <div class="row">
+        <button class="danger" id="stop-btn">STOP</button>
+        <button id="run-done-btn" hidden>Done</button>
+      </div>
     </section>
 
     <!-- Custom Ramp & Hold profile editor -->
