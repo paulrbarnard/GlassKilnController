@@ -22,7 +22,8 @@
 #                   less force to stay closed, and 5 s at 240 heated the
 #                   coil. Tested 2026-10-22 with 5 s ENTER holds at IdLE:
 #                   120 and 80 held (StOP), 50 let the dome lift (seen as a
-#                   short press). 100 leaves margin.
+#                   short press). 100 leaves margin. Dropping after 200 ms
+#                   (the same as a tap) also held.
 #
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
@@ -30,17 +31,17 @@
 enter:
   kick_ms: 100
   hold_duty: 240
-  settle_ms: 500
+  settle_ms: 200
   long_hold_duty: 100
 
 up:
   kick_ms: 100
   hold_duty: 240
-  settle_ms: 500
+  settle_ms: 200
   long_hold_duty: 100
 
 down:
   kick_ms: 100
   hold_duty: 240
-  settle_ms: 500
+  settle_ms: 200
   long_hold_duty: 100

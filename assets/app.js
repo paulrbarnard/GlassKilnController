@@ -704,8 +704,12 @@ document.getElementById('settings-btn').addEventListener('click', () => {
   showScreen('screen-settings');
   refreshBridgeStatus();
   checkControllerUnit();
+});
+document.getElementById('kiln-programs-btn').addEventListener('click', () => {
+  showScreen('screen-kiln');
   loadKilnPrograms();
 });
+document.getElementById('kiln-back-btn').addEventListener('click', () => showScreen('screen-settings'));
 document.getElementById('kiln-read-btn').addEventListener('click', readKilnPrograms);
 
 document.getElementById('profile-back-btn').addEventListener('click', () => profileBackTarget());
@@ -771,52 +775,75 @@ async function checkControllerUnit() {
 // each slot twice; see kiln/programs.py). Read-only on the kiln; Import
 // saves a slot as an app custom profile assigned to that slot.
 
-function describeKilnProgram(entry) {
+// One line per segment, e.g. "1. 300°C/hr → 650°C, 5 min"; the card has
+// room for about five.
+function kilnSegmentLines(entry) {
   const unit = tempUnitLabel();
-  return entry.segments
-    .map((s) => {
-      const hold = s.hold_minutes ? `, hold ${formatDuration(s.hold_minutes)}` : '';
-      return `${showRate(s.rate_f_per_hr).toFixed(0)}${unit}/hr → ${showTemp(s.target_temp_f).toFixed(0)}${unit}${hold}`;
-    })
-    .join(' · ');
+  const lines = entry.segments.map((s, i) => {
+    const hold = s.hold_minutes ? `, ${formatDuration(s.hold_minutes)}` : '';
+    return `${i + 1}. ${showRate(s.rate_f_per_hr).toFixed(0)}${unit}/hr → ${showTemp(s.target_temp_f).toFixed(0)}${unit}${hold}`;
+  });
+  return lines.length > 5 ? [...lines.slice(0, 4), `+ ${lines.length - 4} more`] : lines;
 }
 
-function renderKilnPrograms(programs) {
-  const list = document.getElementById('kiln-programs');
-  list.innerHTML = '';
-  programs.forEach((entry) => {
-    const row = document.createElement('div');
-    row.className = 'kiln-slot';
-    const label = document.createElement('span');
-    label.className = 'slot-label';
-    label.textContent = `Slot ${entry.slot}`;
-    const text = document.createElement('span');
-    text.className = 'slot-text';
-    row.append(label, text);
+let kilnPrograms = [];
 
-    if (entry.error) {
-      text.innerHTML = `<span class="slot-error">Couldn't read: ${entry.error}</span>`;
+function renderKilnPrograms(programs) {
+  kilnPrograms = programs;
+  const grid = document.getElementById('kiln-programs');
+  grid.innerHTML = '';
+  const bySlot = Object.fromEntries(programs.map((p) => [p.slot, p]));
+  const toDraw = [];
+  for (let slot = 1; slot <= 5; slot++) {
+    const entry = bySlot[slot];
+    const card = document.createElement('div');
+    card.className = 'kiln-card';
+    const label = document.createElement('div');
+    label.className = 'slot-label';
+    label.textContent = `Slot ${slot}`;
+    card.appendChild(label);
+
+    if (!entry) {
+      const note = document.createElement('div');
+      note.className = 'slot-note';
+      note.textContent = 'Not read yet';
+      card.appendChild(note);
+    } else if (entry.error) {
+      const err = document.createElement('div');
+      err.className = 'slot-error';
+      err.textContent = `Couldn't read: ${entry.error}`;
+      card.appendChild(err);
     } else {
-      text.textContent = describeKilnProgram(entry);
+      const canvas = document.createElement('canvas');
+      card.appendChild(canvas);
+      toDraw.push([canvas, entry.segments]);
+      const text = document.createElement('div');
+      text.className = 'slot-text';
+      text.innerHTML = kilnSegmentLines(entry).map((l) => `<div>${l}</div>`).join('');
+      card.appendChild(text);
+
       const app = entry.app_profile;
-      const note = document.createElement('span');
+      const note = document.createElement('div');
       note.className = 'slot-note';
       if (app && app.matches) {
         note.textContent = `In the app as “${app.name}” ✓`;
-        row.appendChild(note);
+        card.appendChild(note);
       } else {
         if (app) {
           note.textContent = `Differs from “${app.name}”`;
-          row.appendChild(note);
+          card.appendChild(note);
         }
         const btn = document.createElement('button');
         btn.textContent = app ? 'Import (replace)' : 'Import';
         btn.addEventListener('click', () => importKilnProgram(entry.slot, btn));
-        row.appendChild(btn);
+        card.appendChild(btn);
       }
     }
-    list.appendChild(row);
-  });
+    grid.appendChild(card);
+  }
+  requestAnimationFrame(() =>
+    toDraw.forEach(([canvas, segments]) => drawRampDiagram(canvas, segments, null, { minimal: true }))
+  );
 }
 
 async function importKilnProgram(slot, btn) {
@@ -834,7 +861,7 @@ async function importKilnProgram(slot, btn) {
 function setKilnReading(reading) {
   const btn = document.getElementById('kiln-read-btn');
   btn.disabled = reading;
-  btn.textContent = reading ? 'Reading the kiln… (about 2 min)' : 'Read programs from kiln';
+  btn.textContent = reading ? 'Reading… (about 2 min)' : 'Read programs from kiln';
 }
 
 async function loadKilnPrograms() {
@@ -873,6 +900,9 @@ document.getElementById('scale-c-btn').addEventListener('click', () => requestSc
 document.getElementById('factory-reset-btn').addEventListener('click', factoryReset);
 
 window.addEventListener('resize', () => {
+  if (document.getElementById('screen-kiln').classList.contains('active')) {
+    renderKilnPrograms(kilnPrograms);
+  }
   if (document.getElementById('screen-standard').classList.contains('active')) {
     openStandard();
   }
@@ -904,3 +934,9 @@ document.getElementById('mgf-icon').innerHTML = svgIcon('wrench', 18);
 goHome();
 loadSettings();
 loadFiring();
+// http://<board>:7000/#kiln opens the Kiln programs screen directly (for
+// checking its layout with a headless screenshot).
+if (location.hash === '#kiln') {
+  showScreen('screen-kiln');
+  loadKilnPrograms();
+}

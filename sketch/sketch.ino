@@ -51,7 +51,7 @@ int hold_duty[KEY_COUNT] = {100, 100, 100};
 // Long presses (the 5 s "hold" actions) drop to a lower duty once the
 // button has been held for settle_ms: a membrane dome needs less force to
 // stay closed than to close, and 5 s at the full hold duty heats the coil.
-int settle_ms[KEY_COUNT] = {500, 500, 500};
+int settle_ms[KEY_COUNT] = {200, 200, 200};
 int long_hold_duty[KEY_COUNT] = {255, 255, 255};  // 255 = no reduction
 
 // Hard cap on a single press. The longest real press is the manual's ~4s

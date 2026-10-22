@@ -142,12 +142,20 @@
         <button id="scale-f-btn">Set &deg;F</button>
         <button id="scale-c-btn">Set &deg;C</button>
       </div>
-      <h3>Kiln programs</h3>
-      <p class="status-line" id="kiln-programs-status">The kiln holds up to 5 Ramp &amp; Hold programs. Read them to compare with, or import into, the app.</p>
-      <button id="kiln-read-btn">Read programs from kiln</button>
-      <div class="kiln-programs" id="kiln-programs"></div>
+      <button id="kiln-programs-btn">Kiln programs&hellip;</button>
       <div style="flex: 1"></div>
       <button class="danger" id="factory-reset-btn">Factory Reset Controller&hellip;</button>
+    </section>
+
+    <!-- The kiln's own Ramp & Hold programs (PRO slots 1-5) -->
+    <section id="screen-kiln" class="screen">
+      <div class="row space-between">
+        <button id="kiln-back-btn">&larr; Back</button>
+        <h1>Kiln Programs</h1>
+        <button class="primary" id="kiln-read-btn">Read programs from kiln</button>
+      </div>
+      <p class="status-line">The kiln holds up to 5 Ramp &amp; Hold programs. Reading them changes nothing on the kiln; Import saves one as an app custom profile for that slot.</p>
+      <div class="kiln-grid" id="kiln-programs"></div>
     </section>
 
     <div class="toast" id="toast" hidden></div>
