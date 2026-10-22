@@ -23,8 +23,8 @@ def make_sequencer(script: list[str]) -> tuple[Sequencer, MockBridge]:
 
 def test_select_mode_auto_when_already_showing_auto():
     # Pressing ENTER from IdLE shows the current mode (p.9); if it's
-    # already "Auto", no scrolling is needed before selecting it.
-    sequencer, bridge = make_sequencer(["IdLE", "Auto"])
+    # already "AUto", no scrolling is needed before selecting it.
+    sequencer, bridge = make_sequencer(["IdLE", "AUto"])
     sequencer.select_mode(Mode.AUTO)
     assert bridge.presses == [
         (Key.ENTER, LONG_MS),  # goto_idle's long hold
@@ -37,7 +37,7 @@ def test_run_glassfire_full_fuse_slow_no_mgf():
     # Exact walkthrough from docs/controller_protocol.md "Run a GlassFire
     # (AUTO) program", assuming MGF is off (straight to rEdI) and the
     # controller already shows the target speed/process on first read.
-    sequencer, bridge = make_sequencer(["IdLE", "Auto", "SLo", "FULL", "rEdI", "ON"])
+    sequencer, bridge = make_sequencer(["IdLE", "AUto", "SLo", "FULL", "rEdI", "ON"])
     sequencer.run_glassfire(Speed.SLOW, Process.FULL_FUSE)
     assert bridge.presses == [
         (Key.ENTER, LONG_MS),  # goto_idle
@@ -56,7 +56,7 @@ def test_run_glassfire_scrolls_when_not_already_on_target():
         [
             "IdLE",
             "Pro",
-            "Auto",  # one UP scroll: Pro -> Auto
+            "AUto",  # one UP scroll: Pro -> Auto
             "MEd",
             "FASt",  # one UP scroll: MEd -> FASt
             "SLP",

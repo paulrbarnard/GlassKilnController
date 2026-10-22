@@ -62,7 +62,7 @@ class DisplayMessage(Enum):
 
     DEG_F = "°F"
     DEG_C = "°C"  # uppercase C on the real display (verified 2026-10-22)
-    AUTO = "Auto"
+    AUTO = "AUto"  # capital U on the real display (verified 2026-10-22)
     PRO = "Pro"
     LOAD = "LoAd"
     OPTIONS = "OPt"

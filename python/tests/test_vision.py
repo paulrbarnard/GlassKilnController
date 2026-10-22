@@ -106,6 +106,12 @@ def test_decode_digit_prefers_digits_for_shared_patterns():
         ("5Lo", DisplayMessage.SPEED_SLOW, None),
         ("rA2", DisplayMessage.RATE_PROMPT, 2),
         ("HLd3", DisplayMessage.HOLD_PROMPT, 3),
+        # Mode menu as decoded from the real display, 2026-10-22: capital U
+        # in AUto, and O reads as 0.
+        ("AUto.", DisplayMessage.AUTO, None),
+        ("Pro .", DisplayMessage.PRO, None),
+        ("LoAd.", DisplayMessage.LOAD, None),
+        ("0Pt .", DisplayMessage.OPTIONS, None),
     ],
 )
 def test_classify_matches_by_segment_pattern(raw, message, segment):

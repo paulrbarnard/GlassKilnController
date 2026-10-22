@@ -74,7 +74,7 @@ GLYPHS: dict[str, str] = {
     "D": "bcdeg", "E": "adefg", "F": "aefg", "G": "acdefg", "H": "bcefg",
     "h": "cefg", "I": "bc", "L": "def", "M": "abcef", "N": "abcef",
     "n": "ceg", "O": "abcdef", "o": "cdeg", "P": "abefg", "r": "eg",
-    "S": "acdfg", "t": "defg", "U": "bcdef", "u": "cde", "-": "g",
+    "S": "acdfg", "t": "efg", "U": "bcdef", "u": "cde", "-": "g",
     "°": "abfg",
 }
 

@@ -88,7 +88,7 @@ def test_run_profile_rejects_concurrent_start(tmp_path):
     # press_delay_s=1.0 guarantees the background thread is still mid-flight
     # when the second call below executes on the main thread.
     bridge = MockBridge(press_delay_s=1.0)
-    vision = MockVision(script=["IdLE", "Auto", "SLo", "FULL", "rEdI", "ON"])
+    vision = MockVision(script=["IdLE", "AUto", "SLo", "FULL", "rEdI", "ON"])
     sequencer = Sequencer(bridge=bridge, vision=vision)
     library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
     ui = FakeUI()
