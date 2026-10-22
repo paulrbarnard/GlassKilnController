@@ -24,6 +24,16 @@
 #                   120 and 80 held (StOP), 50 let the dome lift (seen as a
 #                   short press). 100 leaves margin. Dropping after 200 ms
 #                   (the same as a tap) also held.
+#                   UP/DOWN long presses scroll a value (the GM LT waits
+#                   ~2 s, then repeats faster and faster), which needs a
+#                   steadier contact: at 100-190 the dome made and broke
+#                   (random beeps, +1 only); 220 scrolled like full power
+#                   (+41 in 7 s) once UP and DOWN were repositioned. Long
+#                   holds at 220 still warm the coil, so keep them short.
+#                   After the mount was twisted (same day), ENTER at 100
+#                   lost contact part way through a 5 s hold, which acts
+#                   as a plain ENTER (in Pro editing: save and move on);
+#                   160 held and exited cleanly (StOP > IdLE).
 #
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
@@ -32,16 +42,16 @@ enter:
   kick_ms: 100
   hold_duty: 240
   settle_ms: 200
-  long_hold_duty: 100
+  long_hold_duty: 160
 
 up:
   kick_ms: 100
   hold_duty: 240
   settle_ms: 200
-  long_hold_duty: 100
+  long_hold_duty: 220
 
 down:
   kick_ms: 100
   hold_duty: 240
   settle_ms: 200
-  long_hold_duty: 100
+  long_hold_duty: 220

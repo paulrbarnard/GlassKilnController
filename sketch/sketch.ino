@@ -54,9 +54,10 @@ int hold_duty[KEY_COUNT] = {100, 100, 100};
 int settle_ms[KEY_COUNT] = {200, 200, 200};
 int long_hold_duty[KEY_COUNT] = {255, 255, 255};  // 255 = no reduction
 
-// Hard cap on a single press. The longest real press is the manual's ~4s
-// "hold until beep"; anything longer is a bug, not a request.
-const int MAX_PRESS_MS = 8000;
+// Hard cap on a single press, so a bug can't leave a coil energised. The
+// longest presses are held UP/DOWN to scroll a value: the GM LT waits ~2 s
+// before repeating, then speeds up the longer the button is held.
+const int MAX_PRESS_MS = 20000;
 const int DEFAULT_PRESS_MS = 200;  // a short, deliberate tap
 
 static bool key_is_valid(int which) {
