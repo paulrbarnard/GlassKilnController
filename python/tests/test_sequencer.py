@@ -88,3 +88,45 @@ def test_goto_idle_clears_power_failure():
         (Key.ENTER, LONG_MS),
         (Key.ENTER, SHORT_PRESS_MS),  # clear PF
     ]
+
+
+class _MenuController:
+    """Bridge + vision fake for one cyclic menu that ignores chosen presses,
+    like the membrane buttons did on the kiln (2026-10-22)."""
+
+    def __init__(self, options: list[str], ignore_presses: set[int]):
+        self.options, self.ignore, self.index, self.presses = options, ignore_presses, 0, []
+
+    # bridge side
+    def press(self, key: Key, hold_ms: int = SHORT_PRESS_MS) -> None:
+        self.presses.append(key)
+        if len(self.presses) not in self.ignore and key is Key.UP:
+            self.index = (self.index + 1) % len(self.options)
+
+    def ping(self) -> bool:
+        return True
+
+    # vision side
+    def read(self):
+        from kiln.vision import build_controller_state
+
+        return build_controller_state(self.options[self.index])
+
+    def wait_for(self, predicate, timeout_s, poll_interval_s=0.0):
+        state = self.read()
+        return state if predicate(state) else None
+
+
+def test_scroll_presses_again_when_a_press_does_not_register(monkeypatch):
+    import kiln.sequencer as seq
+    from kiln.protocol import DisplayMessage
+
+    monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
+    fake = _MenuController(["Pro", "LoAd", "0Pt", "AUto"], ignore_presses={1})
+    sequencer = Sequencer(bridge=fake, vision=fake)
+
+    sequencer._scroll_to(DisplayMessage.OPTIONS)
+
+    # First UP was ignored and retried; then one more UP: Pro -> LoAd -> 0Pt.
+    assert fake.presses == [Key.UP, Key.UP, Key.UP]
+    assert fake.read().message is DisplayMessage.OPTIONS

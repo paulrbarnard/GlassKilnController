@@ -41,6 +41,10 @@ log = logging.getLogger(__name__)
 # latency is measured.
 DEFAULT_TIMEOUT_S = 5.0
 MAX_MENU_SCROLL_STEPS = 8
+# A menu press normally shows within ~1 s; after this long, assume the
+# membrane button didn't register and press again (up to the attempts).
+MENU_CHANGE_TIMEOUT_S = 3.0
+MENU_PRESS_ATTEMPTS = 3
 
 
 class SequenceError(RuntimeError):
@@ -131,11 +135,29 @@ class Sequencer:
         for _ in range(max_steps):
             if state.message is target:
                 return state
-            self._press(Key.UP)
-            state = self._wait_for(
-                lambda s: s.message is not None, timeout_s, description="menu option"
-            )
+            state = self._press_until_changed(Key.UP, state)
         raise SequenceError(f"couldn't scroll to {target.value} within {max_steps} steps")
+
+    def _press_until_changed(
+        self, key: Key, before: ControllerState, attempts: int = MENU_PRESS_ATTEMPTS
+    ) -> ControllerState:
+        """Press ``key`` and wait for the display to move off ``before``'s
+        menu option, pressing again if it doesn't. The membrane buttons
+        don't register every solenoid press, and the display takes ~0.5 s
+        to update, so reading straight after a press can still show the
+        old option (seen on the kiln, 2026-10-22)."""
+
+        for _ in range(attempts):
+            self._press(key)
+            try:
+                return self._wait_for(
+                    lambda s: s.message is not None and s.message is not before.message,
+                    MENU_CHANGE_TIMEOUT_S,
+                    description="menu option to change",
+                )
+            except SequenceError:
+                continue
+        raise SequenceError(f"{key.name} didn't change {before.raw_text!r} after {attempts} presses")
 
     def _dial_numeric(
         self,
