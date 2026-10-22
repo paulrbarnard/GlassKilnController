@@ -24,7 +24,7 @@ def make_sequencer(script: list[str]) -> tuple[Sequencer, MockBridge]:
 def test_select_mode_auto_when_already_showing_auto():
     # Pressing ENTER from IdLE shows the current mode (p.9); if it's
     # already "AUto", no scrolling is needed before selecting it.
-    sequencer, bridge = make_sequencer(["IdLE", "AUto"])
+    sequencer, bridge = make_sequencer(["IdLE", "AUto", "FA5t"])
     sequencer.select_mode(Mode.AUTO)
     assert bridge.presses == [
         (Key.ENTER, LONG_MS),  # goto_idle's long hold
@@ -177,6 +177,8 @@ def test_select_mode_unlocks_only_when_the_menu_will_not_scroll(monkeypatch):
             elif key is Key.ENTER and self.options == ["IdLE"]:
                 self.options = ["Pro", "LoAd", "0Pt", "AUto"] if self.unlocked else ["AUto"]
                 self.index = 0
+            elif key is Key.ENTER:  # select the mode: on to its first screen
+                self.options, self.index = ["   1."], 0
             elif key is Key.UP:
                 self.index = (self.index + 1) % len(self.options)
 

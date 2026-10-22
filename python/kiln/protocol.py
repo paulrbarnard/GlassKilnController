@@ -75,6 +75,7 @@ class DisplayMessage(Enum):
     IDLE = "IdLE"
     MGF = "MGF"
     ON = "ON"
+    OFF = "OFF"  # an OPt setting's value (MGF), shown as "0FF"
     POWER_FAILURE = "PF"
     RATE_PROMPT = "rA"
     READY = "rEdI"

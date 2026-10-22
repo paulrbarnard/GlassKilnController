@@ -328,7 +328,7 @@ class Sequencer:
         self.bridge.hold_long(Key.DOWN)
         self.level = ProgrammingLevel.BEGINNER
 
-    def select_mode(self, mode: Mode) -> None:
+    def select_mode(self, mode: Mode) -> ControllerState:
         """Open the mode menu from IdLE and select ``mode``.
 
         The level is read off the controller rather than assumed: on
@@ -353,8 +353,14 @@ class Sequencer:
                 continue
             if mode is not Mode.AUTO:
                 self.level = ProgrammingLevel.ADVANCED
-            self._press(Key.ENTER)
-            return
+            # A missed ENTER here once left the scale change scrolling the
+            # mode menu for CHG° (2026-10-22). The next screen may be a word
+            # (AUto's speeds, OPt's list) or a number (Pro/LoAd's slot).
+            return self._enter_from(
+                target,
+                accept=lambda s: s.message is not target
+                and (s.message is not None or s.numeric_value is not None),
+            )
 
     def _require_idle(self, action: str, timeout_s: float = 3.0) -> None:
         """Refuse to start an Options action unless the controller shows
@@ -497,27 +503,59 @@ class Sequencer:
     # best-effort reading of that description; verify the actual prompt
     # sequence against real hardware and tighten this once confirmed.
 
+    def _backing_out_on_failure(self, action: Callable[[], None]) -> None:
+        """Run an Options action; if it fails partway, return the controller
+        to IdLE before reporting, rather than leaving it in a menu."""
+
+        try:
+            action()
+        except SequenceAborted:
+            raise
+        except SequenceError:
+            try:
+                self.goto_idle()
+            except SequenceError:
+                log.warning("couldn't return to IdLE after a failed Options action")
+            raise
+
     def toggle_mgf(self) -> None:
         self._require_idle("toggling MGF")
         self._progress("toggling Modify GlassFire mode")
-        self.select_mode(Mode.OPTIONS)
-        self._scroll_to(DisplayMessage.MGF)
-        self._press(Key.ENTER)
-        self._press(Key.UP)  # toggle current value
-        self._press(Key.ENTER)
-        self.goto_idle()
+
+        def action() -> None:
+            # Options list (verified on the kiln): MGF -> rSEt -> CHG° -> MGF
+            # with UP; ENTER on MGF shows its value, "0FF" or "0N".
+            state = self.select_mode(Mode.OPTIONS)
+            self._scroll_to(DisplayMessage.MGF, state=state)
+            state = self._enter_from(
+                DisplayMessage.MGF,
+                accept=lambda s: s.message in (DisplayMessage.OFF, DisplayMessage.ON),
+            )
+            self._press_until_changed(Key.UP, state)  # toggle the value
+            self._press(Key.ENTER)
+            self.goto_idle()
+
+        self._backing_out_on_failure(action)
 
     def set_temperature_scale(self, celsius: bool) -> None:
         self._require_idle("changing the temperature scale")
         self._progress(f"setting temperature scale: {'C' if celsius else 'F'}")
-        self.select_mode(Mode.OPTIONS)
-        self._scroll_to(DisplayMessage.CHANGE_SCALE)
-        self._press(Key.ENTER)
         target = DisplayMessage.DEG_C if celsius else DisplayMessage.DEG_F
-        self._scroll_to(target)
-        self._press(Key.ENTER)
-        self.controller_celsius = celsius
-        self.goto_idle()
+
+        def action() -> None:
+            # OPt > CHG° > (shows the current unit) > UP to the other > ENTER.
+            state = self.select_mode(Mode.OPTIONS)
+            self._scroll_to(DisplayMessage.CHANGE_SCALE, state=state)
+            state = self._enter_from(
+                DisplayMessage.CHANGE_SCALE,
+                accept=lambda s: s.message in (DisplayMessage.DEG_C, DisplayMessage.DEG_F),
+            )
+            self._scroll_to(target, state=state)
+            self._press(Key.ENTER)
+            self.controller_celsius = celsius
+            self.goto_idle()
+
+        self._backing_out_on_failure(action)
 
     def factory_reset(self) -> None:
         """WIPES stored PRO programs 1-4 and restores the factory casting
