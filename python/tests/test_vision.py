@@ -76,6 +76,29 @@ def test_review_frames(fixture, text, message, segment, number):
     assert (state.message, state.segment_number, state.numeric_value) == (message, segment, number)
 
 
+@pytest.mark.parametrize(
+    "fixture, message",
+    [
+        # Walk through Auto on the kiln, 2026-10-22, revised camera mount
+        # (these crops use the refitted roi).
+        ("menu_auto_roi.png", DisplayMessage.AUTO),
+        ("menu_pro_roi.png", DisplayMessage.PRO),
+        ("menu_opt_roi.png", DisplayMessage.OPTIONS),
+        ("menu_load_roi.png", DisplayMessage.LOAD),
+        ("speed_fast_roi.png", DisplayMessage.SPEED_FAST),
+        ("speed_slow_roi.png", DisplayMessage.SPEED_SLOW),
+        ("speed_medium_roi.png", DisplayMessage.SPEED_MEDIUM),
+        ("process_slump_roi.png", DisplayMessage.PROCESS_SLUMP),
+        ("process_tack_roi.png", DisplayMessage.PROCESS_TACK),
+        ("process_full_roi.png", DisplayMessage.PROCESS_FULL),
+        ("ready_roi.png", DisplayMessage.READY),
+        ("stopped_roi.png", DisplayMessage.STOPPED),
+    ],
+)
+def test_menu_frames(fixture, message):
+    assert build_controller_state(decode_roi(_fixture(fixture), CAL)).message is message
+
+
 def test_idle_frame_survives_exposure_change():
     dimmer = (_fixture("idle_roi.png") * 0.6).astype(np.uint8)
     assert decode_roi(dimmer, CAL) == "1dLE."
@@ -112,6 +135,11 @@ def test_decode_digit_prefers_digits_for_shared_patterns():
         ("Pro .", DisplayMessage.PRO, None),
         ("LoAd.", DisplayMessage.LOAD, None),
         ("0Pt .", DisplayMessage.OPTIONS, None),
+        # Speeds: M is drawn over two digits as two upside-down Us.
+        ("FA5t.", DisplayMessage.SPEED_FAST, None),
+        ("5Lo .", DisplayMessage.SPEED_SLOW, None),
+        ("NNEd.", DisplayMessage.SPEED_MEDIUM, None),
+        ("5t0P.", DisplayMessage.STOPPED, None),
     ],
 )
 def test_classify_matches_by_segment_pattern(raw, message, segment):

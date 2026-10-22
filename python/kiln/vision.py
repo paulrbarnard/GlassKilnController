@@ -64,8 +64,9 @@ class ControllerState:
 # Verified on the real display (Steffi, 2026-10-21/22): 0, 1/I, 2, 3, 5/S,
 # 8, A, C, d, E, G, L, o, P, r, the degree sign, and 9, which this display
 # draws without the bottom segment. G is drawn exactly like 6. The rest are
-# the usual 7-segment shapes; M, N, D, 6 and 7 vary between displays and
-# should be checked against reference frames.
+# the usual 7-segment shapes; D, 6 and 7 vary between displays and should
+# be checked against reference frames. M is two digits (see _patterns), so
+# its entry here is only a fallback.
 GLYPHS: dict[str, str] = {
     " ": "",
     "0": "abcdef", "1": "bc", "2": "abdeg", "3": "abcdg", "4": "bcfg",
@@ -112,7 +113,9 @@ def _patterns(text: str) -> Optional[list[str]]:
     ("rA 1", "°C 1")."""
 
     out = []
-    for char in text.replace(".", "").replace(" ", ""):
+    # M takes two digits on the GM LT, each an upside-down U ("MEd" shows
+    # as two of them then "Ed"; verified 2026-10-22).
+    for char in text.replace(".", "").replace(" ", "").replace("M", "NN"):
         if char not in GLYPHS:
             return None
         out.append(_pattern_key(GLYPHS[char]))
