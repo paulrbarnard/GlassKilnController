@@ -424,7 +424,16 @@ function renderFiring() {
 }
 
 async function setFiring(status) {
+  const previousPhase = firingStatus && firingStatus.phase;
   firingStatus = status;
+  // A confirmed stop goes straight back to the main screen. Any other end
+  // (complete, ended at the kiln, error) stays on the firing screen until
+  // Done, so the result can be read.
+  if (status.phase === 'stopped' && previousPhase !== 'stopped') {
+    renderFiring();
+    goHome();
+    return;
+  }
   if (status.profile_id && (!firingProfile || firingProfile.id !== status.profile_id)) {
     try {
       firingProfile = await api('GET', `/api/profiles/${status.profile_id}`);
@@ -476,8 +485,9 @@ async function runAction(path, label) {
 
 function stopFiring() {
   if (!confirm('Stop the current program? This cannot be undone.')) return;
-  // Stay on this screen: the status shows "Stopping…" until the controller
-  // confirms StOP/IdLE, then "Stopped" (or an error to act on by hand).
+  // The status shows "Stopping…" until the controller confirms StOP/IdLE,
+  // then setFiring returns to the main screen (or shows an error to act on
+  // by hand, staying here).
   if (firingStatus) {
     firingStatus.phase = 'stopping';
     renderFiring();
