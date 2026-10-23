@@ -164,6 +164,28 @@ arduino-app-cli properties set default ~/ArduinoApps/glass-kiln-controller
 sudo systemctl restart lightdm
 ```
 
+Stop the desktop's media service (WirePlumber, part of PipeWire) from
+using the camera. libcamera lets only one process use a camera, and
+WirePlumber's camera monitors can hold it open, which leaves the app
+unable to read the kiln display ("failed to open libcamera pipeline").
+Audio is unaffected:
+
+```bash
+mkdir -p ~/.config/wireplumber/wireplumber.conf.d
+cat > ~/.config/wireplumber/wireplumber.conf.d/50-glasskiln-no-camera.conf <<'CONF'
+wireplumber.profiles = {
+  main = {
+    monitor.libcamera = disabled
+    monitor.v4l2 = disabled
+  }
+}
+CONF
+systemctl --user restart wireplumber pipewire
+```
+
+If the app hit this while the camera was taken, restart the app too: its
+camera connection doesn't recover by itself.
+
 `--incognito` isn't optional polish: without it, Chromium's on-disk HTTP
 cache survives a kiosk relaunch, so after redeploying updated
 `assets/*.js` you can restart the browser and still see the *previous*

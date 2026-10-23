@@ -371,3 +371,14 @@ def test_set_value_holds_are_hours_and_minutes(monkeypatch):
     sequencer, fake = _editing(monkeypatch, 1200, scale=100)  # showing 12.00
     sequencer._set_value(30, scale=100)  # 0 h 30 min
     assert fake.value == 30
+
+
+def test_a_camera_failure_is_reported_as_such():
+    import pytest
+
+    from kiln.sequencer import SequenceError
+
+    sequencer, bridge = make_sequencer(["?"])  # every read fails
+    with pytest.raises(SequenceError, match="can't see the kiln display"):
+        sequencer._require_idle("writing a program")
+    assert bridge.presses == []

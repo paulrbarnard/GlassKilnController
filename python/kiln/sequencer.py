@@ -409,9 +409,20 @@ class Sequencer:
             lambda s: s.message is DisplayMessage.IDLE, timeout_s
         )
         if state is None:
+            self._require_display(action)
             raise SequenceError(
                 f"not {action}: the controller isn't showing IdLE "
                 "(firing, or in a menu); return it to IdLE first"
+            )
+
+    def _require_display(self, action: str) -> None:
+        """Raise a clear error if the camera can't read the display at all
+        (rather than blaming what the controller is showing)."""
+
+        if self.vision.read().raw_text == "?":
+            raise SequenceError(
+                f"not {action}: the app can't see the kiln display (camera problem). "
+                "Restarting the app usually clears it."
             )
 
     # -- AUTO / GlassFire (p.14-15) ------------------------------------------
@@ -886,6 +897,7 @@ class Sequencer:
 
         shown = self.read_controller_celsius()
         if shown is None:
+            self._require_display("starting")
             raise SequenceError("can't tell the controller's unit: is the kiln switched on?")
         if shown != self.controller_celsius:
             app, kiln = ("C", "F") if self.controller_celsius else ("F", "C")
