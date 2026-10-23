@@ -60,6 +60,46 @@ int long_hold_duty[KEY_COUNT] = {255, 255, 255};  // 255 = no reduction
 const int MAX_PRESS_MS = 20000;
 const int DEFAULT_PRESS_MS = 200;  // a short, deliberate tap
 
+// ---- Heat budget -------------------------------------------------------
+// The solenoids are rated 5% duty in 60 s at 12 V: about 3 s of full power
+// a minute (one was burnt out by repeated long scroll holds). Each coil's
+// heat is tracked in "full-power seconds": a press adds its cost (power
+// goes with the square of the PWM duty) and it drains at the rated 0.05/s.
+// The Python side waits for coils to cool before pressing (kiln/bridge.py,
+// same model, ceiling 3.0); this is the safety net behind it, so a press
+// that would take a coil past HEAT_LIMIT is refused even if Python is wrong.
+const float HEAT_DRAIN_PER_S = 0.05f;
+const float HEAT_LIMIT = 4.5f;
+float heat[KEY_COUNT] = {0, 0, 0};
+unsigned long heat_ms[KEY_COUNT] = {0, 0, 0};
+
+static float duty_power(int duty) {
+  float d = duty / 255.0f;
+  return d * d;
+}
+
+static float press_cost(int which, int hold_ms) {
+  int kick = min(hold_ms, kick_ms[which]);
+  float cost = kick / 1000.0f;
+  if (hold_ms > kick) {
+    int settle = max(settle_ms[which], kick_ms[which]);
+    bool reduce = hold_ms > settle && long_hold_duty[which] < hold_duty[which];
+    int at_hold = (reduce ? settle : hold_ms) - kick;
+    cost += at_hold / 1000.0f * duty_power(hold_duty[which]);
+    if (reduce) {
+      cost += (hold_ms - settle) / 1000.0f * duty_power(long_hold_duty[which]);
+    }
+  }
+  return cost;
+}
+
+static void drain_heat(int which) {
+  unsigned long now = millis();
+  heat[which] -= (now - heat_ms[which]) / 1000.0f * HEAT_DRAIN_PER_S;
+  if (heat[which] < 0) heat[which] = 0;
+  heat_ms[which] = now;
+}
+
 static bool key_is_valid(int which) {
   return which >= 0 && which < KEY_COUNT;
 }
@@ -89,6 +129,12 @@ bool press_button(int which, int hold_ms) {
   if (hold_ms <= 0) {
     hold_ms = DEFAULT_PRESS_MS;
   }
+  drain_heat(which);
+  float cost = press_cost(which, hold_ms);
+  if (heat[which] + cost > HEAT_LIMIT) {
+    return false;  // would overheat this coil: refuse (see heat budget)
+  }
+  heat[which] += cost;
 
   const uint8_t pin = SOLENOID_PIN[which];
   all_off();
