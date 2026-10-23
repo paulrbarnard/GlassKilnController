@@ -65,6 +65,12 @@ def main() -> int:
         before = None
         for _ in range(2):
             _, before = frame_text()
+        if before is None:
+            # Never press without being able to see the result. The usual
+            # cause is the app holding the camera (it keeps it open for 30 s
+            # after its last read).
+            print("camera unavailable (in use by the app?); nothing pressed")
+            return 1
         print(f"{time.strftime('%H:%M:%S')}  before: {before!r} ({describe(before or '')})", flush=True)
 
         if args.press:
