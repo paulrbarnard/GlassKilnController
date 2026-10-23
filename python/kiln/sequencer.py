@@ -55,7 +55,7 @@ MENU_PRESS_ATTEMPTS = 3
 # waits ~2 s before repeating, then speeds up, levelling off around 17
 # steps/s. (seconds held, steps moved):
 SCROLL_CURVE = ((2.0, 0), (3.0, 3), (5.0, 19), (7.0, 41), (8.0, 55), (12.0, 121))
-SCROLL_HOLD_MAX_S = 12.0  # longer holds heat the coil
+SCROLL_HOLD_MAX_S = 9.0  # at UP/DOWN's duty 140 a longer hold won't fit the heat budget
 SCROLL_REST_MAX_S = 6.0  # rest after a hold, up to this long, for the coil
 TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
 

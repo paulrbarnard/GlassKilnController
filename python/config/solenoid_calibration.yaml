@@ -45,6 +45,10 @@
 # of travel. Tested with 60 s rests: ENTER's 5 s exit held at 60 (twice,
 # StOP seen) and is set to 80 (~10% power). UP scrolling still only gave
 # +1 at 60-120 and +9 at 160, so its finger needs to go a little deeper.
+# A longer finger changed nothing; swapping the ENTER and UP solenoids
+# (same channels) did: the solenoid now on UP scrolls at 120 (+30 in 7 s),
+# and the one now on ENTER still exits at 80. UP is set to 140. DOWN
+# (burnt out) keeps its old value until it's replaced and tested.
 #
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
@@ -59,7 +63,7 @@ up:
   kick_ms: 100
   hold_duty: 240
   settle_ms: 200
-  long_hold_duty: 220
+  long_hold_duty: 140
 
 down:
   kick_ms: 100
