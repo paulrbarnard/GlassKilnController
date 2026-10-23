@@ -154,9 +154,18 @@
         <h1>Kiln Programs</h1>
         <button class="primary" id="kiln-read-btn">Read programs from kiln</button>
       </div>
-      <p class="status-line">The kiln holds up to 5 Ramp &amp; Hold programs. Reading them changes nothing on the kiln; Import saves one as an app custom profile for that slot.</p>
+      <p class="status-line">Reading changes nothing on the kiln. Import saves a slot as an app custom profile; Send writes an app profile into a slot (about 2 min) and checks it by reading it back.</p>
       <div class="kiln-grid" id="kiln-programs"></div>
     </section>
+
+    <!-- Choose an app custom profile to send to a kiln slot -->
+    <div class="modal" id="send-picker" hidden>
+      <div class="modal-box">
+        <h2 id="send-picker-title">Send to kiln slot</h2>
+        <div class="send-list" id="send-list"></div>
+        <button id="send-cancel-btn">Cancel</button>
+      </div>
+    </div>
 
     <div class="toast" id="toast" hidden></div>
 

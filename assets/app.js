@@ -686,6 +686,10 @@ ui.on_message('settings', (data) => {
 ui.on_message('error', (data) => {
   setScaleBusy(false);
   setKilnReading(false);
+  if (writingSlot !== null) {
+    writingSlot = null;
+    renderKilnPrograms(kilnPrograms);
+  }
   if (document.getElementById('screen-run').classList.contains('active')) {
     appendLog(`ERROR: ${data.message}`, true);
   } else {
@@ -711,6 +715,7 @@ document.getElementById('kiln-programs-btn').addEventListener('click', () => {
 });
 document.getElementById('kiln-back-btn').addEventListener('click', () => showScreen('screen-settings'));
 document.getElementById('kiln-read-btn').addEventListener('click', readKilnPrograms);
+document.getElementById('send-cancel-btn').addEventListener('click', closeSendPicker);
 
 document.getElementById('profile-back-btn').addEventListener('click', () => profileBackTarget());
 document.getElementById('profile-edit-btn').addEventListener('click', () => {
@@ -835,15 +840,71 @@ function renderKilnPrograms(programs) {
         }
         const btn = document.createElement('button');
         btn.textContent = app ? 'Import (replace)' : 'Import';
+        btn.disabled = writingSlot !== null;
         btn.addEventListener('click', () => importKilnProgram(entry.slot, btn));
         card.appendChild(btn);
       }
     }
+    const send = document.createElement('button');
+    send.textContent = writingSlot === slot ? 'Writing… (about 2 min)' : 'Send…';
+    send.disabled = writingSlot !== null;
+    send.addEventListener('click', () => openSendPicker(slot));
+    card.appendChild(send);
     grid.appendChild(card);
   }
   requestAnimationFrame(() =>
     toDraw.forEach(([canvas, segments]) => drawRampDiagram(canvas, segments, null, { minimal: true }))
   );
+}
+
+// -- Sending an app profile to a kiln slot ------------------------------------
+
+let writingSlot = null; // the slot being written, while a write runs
+
+function profileSummary(profile) {
+  const unit = tempUnitLabel();
+  const peak = Math.max(...profile.segments.map((s) => s.target_temp_f));
+  const n = profile.segments.length;
+  return `${n} segment${n === 1 ? '' : 's'}, peak ${showTemp(peak).toFixed(0)}${unit}, ${totalHours(profile.segments).toFixed(1)}h`;
+}
+
+async function openSendPicker(slot) {
+  let profiles;
+  try {
+    profiles = (await api('GET', '/api/profiles')).profiles.filter((p) => p.kind === 'ramp_hold');
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+    return;
+  }
+  document.getElementById('send-picker-title').textContent = `Send an app profile to kiln slot ${slot}`;
+  const list = document.getElementById('send-list');
+  list.innerHTML = '';
+  if (!profiles.length) list.textContent = 'There are no custom profiles in the app yet.';
+  profiles.forEach((profile) => {
+    const btn = document.createElement('button');
+    btn.innerHTML = `${profile.name}<span class="send-summary">${profileSummary(profile)}</span>`;
+    btn.addEventListener('click', () => sendToSlot(slot, profile));
+    list.appendChild(btn);
+  });
+  document.getElementById('send-picker').hidden = false;
+}
+
+function closeSendPicker() {
+  document.getElementById('send-picker').hidden = true;
+}
+
+async function sendToSlot(slot, profile) {
+  if (!confirm(`Replace kiln slot ${slot} with “${profile.name}”? This takes about 2 minutes.`)) return;
+  closeSendPicker();
+  writingSlot = slot;
+  renderKilnPrograms(kilnPrograms);
+  try {
+    await api('POST', `/api/kiln_programs/${slot}/write`, { profile_id: profile.id });
+  } catch (e) {
+    writingSlot = null;
+    renderKilnPrograms(kilnPrograms);
+    alert(`Could not send: ${e.message}`);
+  }
 }
 
 async function importKilnProgram(slot, btn) {
@@ -883,8 +944,11 @@ function readKilnPrograms() {
 }
 
 ui.on_message('kiln_programs', (data) => {
+  if (data.done) {
+    setKilnReading(false);
+    writingSlot = null;
+  }
   renderKilnPrograms(data.programs);
-  if (data.done) setKilnReading(false);
 });
 
 function requestScale(celsius) {
