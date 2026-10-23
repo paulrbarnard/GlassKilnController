@@ -238,7 +238,7 @@ def register_routes(
                     f"Loading “{profile.name}” into kiln slot {slot} "
                     f"(replacing {kiln_slots.describe(slot, library)}); about 2 minutes"
                 )
-            sequencer.write_program(slot, profile.segments)
+            write_slot(slot, profile.segments)
             push_progress(f"Checking kiln slot {slot} by reading it back")
             program = sequencer.read_program(slot)
             if not same_segments(profile.segments, program.segments):
@@ -315,6 +315,17 @@ def register_routes(
                 }
         return entry
 
+    def write_slot(slot: int, segments) -> None:
+        """Write a slot; if that fails or is stopped part way, the slot holds
+        a half-edited program, so stop trusting the app's record of it."""
+
+        try:
+            sequencer.write_program(slot, segments)
+        except BaseException:
+            kiln_slots.set_unknown(slot)
+            kiln_programs.pop(slot, None)
+            raise
+
     def read_kiln_programs(body: dict | None = None):
         """Read the kiln's PRO slots (default all five) into the app. Each
         slot is read twice and must match; the controller is left at IdLE
@@ -365,7 +376,7 @@ def register_routes(
             return {"error": "slot must be 1-5"}
 
         def task() -> None:
-            sequencer.write_program(slot_n, profile.segments)
+            write_slot(slot_n, profile.segments)
             push_progress(f"Checking slot {slot_n} by reading it back")
             program = sequencer.read_program(slot_n)
             if not same_segments(profile.segments, program.segments):

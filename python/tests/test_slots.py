@@ -133,3 +133,26 @@ def test_a_slot_changed_behind_the_apps_back_is_rewritten(tmp_path):
     kiln, _ = run(tmp_path, library, slots, {2: [seg(1400)]}, "a")
     assert kiln.calls == [("start", 2), ("write", 2), ("read", 2), ("start", 2)]
     assert slots.slot_for(a) == 2
+
+
+def test_a_failed_write_forgets_the_slot(tmp_path):
+    from kiln.sequencer import SequenceError
+
+    library, slots = make(tmp_path)
+    a, b = custom(library, "a", 1000), custom(library, "b", 1100)
+    for slot in range(1, 6):
+        slots.assign(slot, a.id if slot == 1 else f"x{slot}", a.segments)
+    sequencer = Sequencer(bridge=MockBridge(press_delay_s=0.0), vision=MockVision(script=["IdLE"]))
+    kiln = FakeKiln(sequencer, {})
+
+    def broken_write(slot, segments):
+        kiln.calls.append(("write", slot))
+        raise SequenceError("DOWN didn't change the value")
+
+    sequencer.write_program = broken_write
+    ui = FakeUI()
+    register_routes(ui, sequencer, library, settings_path=tmp_path / "s.json", kiln_slots=slots)
+    ui.call("POST", "/api/run/{profile_id}", profile_id="b")
+    _wait_for_threads()
+    [(_, slot)] = kiln.calls
+    assert slot not in slots.slots  # half-written: no longer trusted
