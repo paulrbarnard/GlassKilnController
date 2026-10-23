@@ -33,7 +33,7 @@ from kiln.protocol import (
     RampHoldSegment,
     Speed,
 )
-from kiln.programs import KilnProgram, ReviewParseError, parse_review
+from kiln.programs import KilnProgram, ReviewParseError, parse_review, same_segments
 from kiln.vision import ControllerState, KilnVision
 from kiln.settings import f_to_c, rate_f_to_c
 
@@ -81,6 +81,16 @@ class SequenceError(RuntimeError):
 class SequenceAborted(SequenceError):
     """Raised inside a running sequence when stop() has been requested, so
     programming stops before its next press instead of carrying on."""
+
+
+class ProgramMismatch(SequenceError):
+    """The kiln slot doesn't hold the program the app expected (edited at
+    the kiln, or the app's record was wrong). Nothing was started."""
+
+    def __init__(self, slot: int, found: Optional[KilnProgram]):
+        super().__init__(f"kiln slot {slot} doesn't hold the expected program")
+        self.slot = slot
+        self.found = found
 
 
 class ControllerErrorState(SequenceError):
@@ -748,6 +758,31 @@ class Sequencer:
         self._backing_out_on_failure(action)
         self._progress(f"slot {slot} written")
 
+    def start_slot(self, slot: int, expected: list[RampHoldSegment]) -> None:
+        """Start the program in PRO ``slot``, but only after checking it is
+        ``expected``: LoAd the slot, Review it at rEdI (one pass, a second
+        if it doesn't parse) and compare, then ENTER to start. Raises
+        ProgramMismatch (back at IdLE, nothing started) if it differs."""
+
+        self.check_controller_unit()
+        self._progress(f"loading kiln slot {slot}")
+
+        def action() -> None:
+            self._load_slot(slot)
+            found = None
+            for _ in range(2):
+                try:
+                    found = parse_review(self._review())
+                    break
+                except ReviewParseError as exc:
+                    log.info("slot %d review didn't parse (%s); reviewing again", slot, exc)
+            if found is None or found.slot != slot or not same_segments(expected, found.segments):
+                raise ProgramMismatch(slot, found)
+
+        self._backing_out_on_failure(action)
+        self._progress("ready — starting")
+        self._start_from_ready()
+
     # -- Profile entry point --------------------------------------------------
 
     def run_profile(self, profile: Profile) -> None:
@@ -898,7 +933,7 @@ class Sequencer:
                 return state
         raise SequenceError(
             "stop not confirmed: the display never showed StOP or IdLE. "
-            "Press STOP/ENTER on the controller by hand."
+            "Switch the kiln off at its power switch."
         )
 
     # -- Live Edit Mode (p.21-22) — only valid while firing ------------------

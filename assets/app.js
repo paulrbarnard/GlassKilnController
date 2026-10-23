@@ -129,26 +129,24 @@ function renderProfileGrid(containerId, profiles, fromScreen) {
 // Standard's fixed 9-card layout, rather than a grid that grows/shrinks
 // and looks sparse with only a couple of saved profiles. Unfilled cells
 // are a distinct "+ Empty" placeholder that opens the new-profile editor.
-// Each real card gets a status badge stating exactly what "active" means
-// here: assigned to one of the 5 physical PRO slots, or not.
+// Each real card gets a badge saying whether the kiln holds it in one of its
+// 5 program slots (the app manages those itself: starting a profile that
+// isn't on the kiln loads it into the least-used slot), and how often it
+// has been fired.
 function renderCustomGrid(profiles) {
   const list = document.getElementById('custom-list');
   list.innerHTML = '';
   const cardsWithDiagrams = [];
 
-  const sorted = profiles.slice().sort((a, b) => {
-    const aActive = a.pro_slot ? 0 : 1;
-    const bActive = b.pro_slot ? 0 : 1;
-    if (aActive !== bActive) return aActive - bActive;
-    if (a.pro_slot && b.pro_slot) return a.pro_slot - b.pro_slot;
-    return a.name.localeCompare(b.name);
-  });
+  // Most-fired first, so the profiles in regular use are at the top.
+  const sorted = profiles.slice().sort((a, b) => (b.uses || 0) - (a.uses || 0) || a.name.localeCompare(b.name));
 
   sorted.forEach((p) => {
     const card = buildProfileCard(p, 'screen-custom', cardsWithDiagrams);
     const status = document.createElement('div');
-    status.className = p.pro_slot ? 'slot-status active' : 'slot-status inactive';
-    status.textContent = p.pro_slot ? `ACTIVE — Slot ${p.pro_slot}` : 'Inactive';
+    const fired = p.uses ? ` · fired ${p.uses}×` : '';
+    status.className = p.kiln_slot ? 'slot-status active' : 'slot-status inactive';
+    status.textContent = p.kiln_slot ? `On kiln · slot ${p.kiln_slot}${fired}` : `Not on kiln${fired}`;
     card.insertBefore(status, card.firstChild);
     list.appendChild(card);
   });
@@ -230,7 +228,7 @@ async function openProfile(id, fromScreen) {
   if (!isReprogrammable) {
     populateMgfFields(profile);
   } else {
-    await renderSlotPicker(profile);
+    renderKilnStatus(profile);
   }
   showScreen('screen-profile');
   requestAnimationFrame(() =>
@@ -288,51 +286,14 @@ async function clearMgfOverride() {
   }
 }
 
-// -- Active PRO slot picker (Ramp & Hold profiles only) ----------------------
+// -- Kiln status (Ramp & Hold profiles only) -----------------------------------
 
-async function renderSlotPicker(profile) {
-  const { profiles } = await api('GET', '/api/profiles');
-  const occupants = {};
-  profiles.forEach((p) => {
-    if (p.pro_slot) occupants[p.pro_slot] = p;
-  });
-
-  const container = document.getElementById('slot-buttons');
-  container.innerHTML = '';
-  for (let slot = 1; slot <= 5; slot++) {
-    const occupant = occupants[slot];
-    const isCurrent = profile.pro_slot === slot;
-    const btn = document.createElement('button');
-    btn.className = isCurrent ? 'slot-btn current' : 'slot-btn';
-    const occupantLabel = isCurrent ? 'this profile' : occupant ? occupant.name : '(empty)';
-    btn.innerHTML = `Slot ${slot}<span class="occupant">${occupantLabel}</span>`;
-    btn.addEventListener('click', () => handleSlotClick(profile, slot, isCurrent, occupant));
-    container.appendChild(btn);
-  }
-}
-
-async function handleSlotClick(profile, slot, isCurrent, occupant) {
-  if (isCurrent) {
-    if (!confirm(`Deactivate "${profile.name}" from slot ${slot}?`)) return;
-    try {
-      const updated = await api('POST', `/api/profiles/${profile.id}/deactivate`);
-      currentProfile = updated;
-      await renderSlotPicker(updated);
-    } catch (e) {
-      alert(`Could not deactivate: ${e.message}`);
-    }
-    return;
-  }
-  if (occupant && !confirm(`Slot ${slot} is currently "${occupant.name}". Replace it with "${profile.name}"?`)) {
-    return;
-  }
-  try {
-    const updated = await api('POST', `/api/profiles/${profile.id}/activate`, { slot });
-    currentProfile = updated;
-    await renderSlotPicker(updated);
-  } catch (e) {
-    alert(`Could not activate: ${e.message}`);
-  }
+function renderKilnStatus(profile) {
+  const n = profile.uses || 0;
+  const fired = `Fired ${n} time${n === 1 ? '' : 's'}.`;
+  document.getElementById('slot-section').textContent = profile.kiln_slot
+    ? `On the kiln in program slot ${profile.kiln_slot}, so it starts straight away. ${fired}`
+    : `Not on the kiln yet: starting it loads it into a program slot first (about 2 minutes). ${fired}`;
 }
 
 async function startFiring() {
@@ -831,7 +792,7 @@ function renderKilnPrograms(programs) {
       const note = document.createElement('div');
       note.className = 'slot-note';
       if (app && app.matches) {
-        note.textContent = `In the app as “${app.name}” ✓`;
+        note.textContent = `In the app as “${app.name}” ✓${app.uses ? ` · fired ${app.uses}×` : ''}`;
         card.appendChild(note);
       } else {
         if (app) {

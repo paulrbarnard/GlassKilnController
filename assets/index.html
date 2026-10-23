@@ -65,12 +65,9 @@
         </div>
       </div>
 
-      <!-- Ramp & Hold only: which physical PRO slot (1-5) this profile is
-           currently assigned to, if any -->
-      <div id="slot-section" hidden>
-        <h3>Active Slot</h3>
-        <div class="row wrap" id="slot-buttons"></div>
-      </div>
+      <!-- Ramp & Hold only: whether the kiln holds this profile in one of
+           its 5 program slots (managed automatically; see kiln/slots.py) -->
+      <p class="status-line" id="slot-section" hidden></p>
 
       <p class="description" id="profile-description"></p>
       <details class="segment-details">

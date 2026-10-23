@@ -122,39 +122,6 @@ def make_custom(ui, id_="custom"):
     )
 
 
-def test_activate_and_deactivate_profile(tmp_path):
-    ui, *_ = make_registered(tmp_path)
-    make_custom(ui, "custom")
-
-    activated = ui.call("POST", "/api/profiles/{profile_id}/activate", profile_id="custom", body={"slot": 1})
-    assert activated["pro_slot"] == 1
-
-    deactivated = ui.call("POST", "/api/profiles/{profile_id}/deactivate", profile_id="custom")
-    assert deactivated["pro_slot"] is None
-
-
-def test_activate_swaps_out_previous_holder(tmp_path):
-    ui, *_ = make_registered(tmp_path)
-    make_custom(ui, "a")
-    make_custom(ui, "b")
-
-    ui.call("POST", "/api/profiles/{profile_id}/activate", profile_id="a", body={"slot": 1})
-    ui.call("POST", "/api/profiles/{profile_id}/activate", profile_id="b", body={"slot": 1})
-
-    a = ui.call("GET", "/api/profiles/{profile_id}", profile_id="a")
-    b = ui.call("GET", "/api/profiles/{profile_id}", profile_id="b")
-    assert a["pro_slot"] is None
-    assert b["pro_slot"] == 1
-
-
-def test_activate_rejects_glassfire_profile(tmp_path):
-    ui, *_ = make_registered(tmp_path)
-    result = ui.call(
-        "POST", "/api/profiles/{profile_id}/activate", profile_id="full_fuse_slow", body={"slot": 1}
-    )
-    assert "error" in result
-
-
 def test_set_mgf_override_via_api(tmp_path):
     ui, *_ = make_registered(tmp_path)
     result = ui.call(
@@ -279,10 +246,9 @@ def test_kiln_programs_read_compare_and_import(tmp_path):
     assert "app_profile" not in entry
 
     profile = ui.call("POST", "/api/kiln_programs/{slot}/import", slot="4", body={})
-    assert profile["id"] == "kiln_slot_4" and profile["pro_slot"] == 4
-    assert library.active_slot_holder(4).id == "kiln_slot_4"
+    assert profile["id"] == "kiln_slot_4" and profile["kiln_slot"] == 4 and profile["uses"] == 0
     [entry] = ui.call("GET", "/api/kiln_programs")["programs"]
-    assert entry["app_profile"] == {"id": "kiln_slot_4", "name": "Kiln slot 4", "matches": True}
+    assert entry["app_profile"] == {"id": "kiln_slot_4", "name": "Kiln slot 4", "uses": 0, "matches": True}
 
     # Read again: still matches what the app now holds for slot 4.
     ui.call("POST", "/api/kiln_programs/read", body={"slots": [4]})

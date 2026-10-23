@@ -30,7 +30,10 @@ from typing import Callable, Optional, Protocol
 
 from kiln.firing import FiringMonitor
 from kiln.profiles import Profile, ProfileKind, ProfileLibrary
-from kiln.sequencer import Sequencer, SequenceAborted, SequenceError
+from kiln.programs import same_segments
+from kiln.sequencer import ProgramMismatch, Sequencer, SequenceAborted, SequenceError
+from kiln.slots import DEFAULT_PATH as SLOTS_PATH
+from kiln.slots import KilnSlots
 from kiln.settings import DEFAULT_PATH as SETTINGS_PATH
 from kiln.settings import AppSettings
 
@@ -63,9 +66,22 @@ def register_routes(
     library: ProfileLibrary,
     settings: AppSettings | None = None,
     settings_path=SETTINGS_PATH,
+    kiln_slots: KilnSlots | None = None,
 ) -> None:
     state = RunState()
     settings = settings or AppSettings()
+    kiln_slots = kiln_slots if kiln_slots is not None else KilnSlots.load(SLOTS_PATH)
+
+    def detail(profile: Profile) -> dict:
+        """A profile for the UI, with where it is on the kiln (custom
+        profiles only): which slot holds this exact version, and how many
+        firings it has started."""
+
+        d = _detail(profile)
+        if profile.kind is ProfileKind.RAMP_HOLD:
+            d["kiln_slot"] = kiln_slots.slot_for(profile)
+            d["uses"] = kiln_slots.uses(profile.id)
+        return d
     sequencer.controller_celsius = settings.celsius
 
     def push_progress(message: str) -> None:
@@ -124,14 +140,14 @@ def register_routes(
         # screen shows a glanceable peak-temperature number per card, which
         # needs each profile's resolved segments up front rather than a
         # second round trip per card.
-        return {"profiles": [_detail(p) for p in library.all()]}
+        return {"profiles": [detail(p) for p in library.all()]}
 
     def get_profile(profile_id: str):
         try:
             profile = library.get(profile_id)
         except KeyError:
             return {"error": f"no such profile: {profile_id}"}
-        return _detail(profile)
+        return detail(profile)
 
     def save_profile(body: dict):
         try:
@@ -141,7 +157,7 @@ def register_routes(
             library.save_user_profile(profile)
         except (KeyError, ValueError) as exc:
             return {"error": str(exc)}
-        return _detail(profile)
+        return detail(profile)
 
     def delete_profile(profile_id: str):
         try:
@@ -149,20 +165,6 @@ def register_routes(
         except ValueError as exc:
             return {"error": str(exc)}
         return {"ok": True}
-
-    def activate_profile(profile_id: str, body: dict):
-        try:
-            profile = library.set_active_slot(profile_id, body.get("slot"))
-        except ValueError as exc:
-            return {"error": str(exc)}
-        return _detail(profile)
-
-    def deactivate_profile(profile_id: str):
-        try:
-            profile = library.set_active_slot(profile_id, None)
-        except ValueError as exc:
-            return {"error": str(exc)}
-        return _detail(profile)
 
     def set_mgf_override(profile_id: str, body: dict):
         # Only the process (segment 2) temp/hold are ever overridable — see
@@ -177,7 +179,7 @@ def register_routes(
             )
         except ValueError as exc:
             return {"error": str(exc)}
-        return _detail(profile)
+        return detail(profile)
 
     # -- run lifecycle ----------------------------------------------------
 
@@ -192,7 +194,11 @@ def register_routes(
 
         def task() -> None:
             try:
-                sequencer.run_profile(profile)
+                if profile.kind is ProfileKind.RAMP_HOLD:
+                    run_custom(profile)
+                    kiln_slots.record_use(profile.id)
+                else:
+                    sequencer.run_profile(profile)
                 monitor.firing_started()
                 push_progress("Program started successfully — kiln is running.")
             except SequenceAborted:
@@ -211,6 +217,36 @@ def register_routes(
         def before_start() -> None:
             monitor.begin(profile.id, profile.name)
             sequencer.abort.clear()
+
+        def run_custom(profile: Profile) -> None:
+            """Start a custom profile from its kiln slot, first writing it
+            into the slot chosen by KilnSlots.choose_slot if the kiln
+            doesn't hold this version of it (or the slot check finds it
+            changed)."""
+
+            slot = kiln_slots.slot_for(profile)
+            if slot is not None:
+                try:
+                    sequencer.start_slot(slot, profile.segments)
+                    return
+                except ProgramMismatch:
+                    push_progress(f"Kiln slot {slot} no longer holds “{profile.name}”; reprogramming it")
+                    kiln_slots.set_unknown(slot)
+            else:
+                slot = kiln_slots.choose_slot(library)
+                push_progress(
+                    f"Loading “{profile.name}” into kiln slot {slot} "
+                    f"(replacing {kiln_slots.describe(slot, library)}); about 2 minutes"
+                )
+            sequencer.write_program(slot, profile.segments)
+            push_progress(f"Checking kiln slot {slot} by reading it back")
+            program = sequencer.read_program(slot)
+            if not same_segments(profile.segments, program.segments):
+                kiln_slots.record_kiln_read(slot, program.segments, library)
+                raise SequenceError(f"kiln slot {slot} read back differently from “{profile.name}”")
+            kiln_slots.assign(slot, profile.id, program.segments)
+            kiln_programs[slot] = _slot_entry(slot, program=program)
+            sequencer.start_slot(slot, profile.segments)
 
         result = run_exclusive("starting a firing", task, before_start)
         if "error" in result:
@@ -264,11 +300,19 @@ def register_routes(
             entry["error"] = error
         if program is not None:
             entry.update(program.to_dict())
-        holder = library.active_slot_holder(slot)
-        if holder is not None:
-            entry["app_profile"] = {"id": holder.id, "name": holder.name}
-            if program is not None:
-                entry["app_profile"]["matches"] = _same_segments(holder.segments or [], program.segments)
+        rec = kiln_slots.slots.get(slot)
+        if rec is not None:
+            try:
+                holder = library.get(rec.profile_id)
+            except KeyError:
+                holder = None
+            if holder is not None:
+                entry["app_profile"] = {
+                    "id": holder.id,
+                    "name": holder.name,
+                    "uses": kiln_slots.uses(holder.id),
+                    "matches": program is None or same_segments(holder.segments or [], program.segments),
+                }
         return entry
 
     def read_kiln_programs(body: dict | None = None):
@@ -283,7 +327,9 @@ def register_routes(
         def task() -> None:
             for slot in slots:
                 try:
-                    kiln_programs[slot] = _slot_entry(slot, program=sequencer.read_program(slot))
+                    program = sequencer.read_program(slot)
+                    kiln_slots.record_kiln_read(slot, program.segments, library)
+                    kiln_programs[slot] = _slot_entry(slot, program=program)
                 except SequenceAborted:
                     raise
                 except SequenceError as exc:
@@ -322,11 +368,12 @@ def register_routes(
             sequencer.write_program(slot_n, profile.segments)
             push_progress(f"Checking slot {slot_n} by reading it back")
             program = sequencer.read_program(slot_n)
-            if not _same_segments(profile.segments, program.segments):
+            if not same_segments(profile.segments, program.segments):
+                kiln_slots.record_kiln_read(slot_n, program.segments, library)
                 kiln_programs[slot_n] = _slot_entry(slot_n, program=program)
                 ui.send_message("kiln_programs", {"programs": list_kiln_programs()["programs"], "done": True})
                 raise SequenceError(f"slot {slot_n} read back differently from “{profile.name}”")
-            library.set_active_slot(profile.id, slot_n)
+            kiln_slots.assign(slot_n, profile.id, program.segments)
             kiln_programs[slot_n] = _slot_entry(slot_n, program=program)
             ui.send_message("kiln_programs", {"programs": list_kiln_programs()["programs"], "done": True})
             push_progress(f"“{profile.name}” is now in kiln slot {slot_n} (checked).")
@@ -354,11 +401,12 @@ def register_routes(
                 }
             )
             library.save_user_profile(profile)
-            profile = library.set_active_slot(profile_id, int(slot))
         except (KeyError, ValueError) as exc:
             return {"error": str(exc)}
-        kiln_programs[int(slot)] = {**entry, "app_profile": {"id": profile.id, "name": profile.name, "matches": True}}
-        return _detail(profile)
+        kiln_slots.assign(int(slot), profile.id, profile.segments)
+        kiln_programs[int(slot)] = _slot_entry(int(slot))
+        kiln_programs[int(slot)].update({k: entry[k] for k in ("unit", "segments")})
+        return detail(profile)
 
     def skip_segment():
         return run_exclusive("skipping a segment", sequencer.skip_segment)
@@ -417,8 +465,6 @@ def register_routes(
     ui.expose_api("GET", "/api/profiles/{profile_id}", get_profile)
     ui.expose_api("POST", "/api/profiles", save_profile)
     ui.expose_api("DELETE", "/api/profiles/{profile_id}", delete_profile)
-    ui.expose_api("POST", "/api/profiles/{profile_id}/activate", activate_profile)
-    ui.expose_api("POST", "/api/profiles/{profile_id}/deactivate", deactivate_profile)
     ui.expose_api("POST", "/api/profiles/{profile_id}/mgf_override", set_mgf_override)
     ui.expose_api("POST", "/api/run/{profile_id}", run_profile)
     ui.expose_api("POST", "/api/stop", stop)
@@ -469,16 +515,3 @@ def _detail(profile: Profile) -> dict:
     ]
     return d
 
-
-def _same_segments(app_segments, kiln_segments, temp_tol_f: float = 2.0, rate_tol_f: float = 2.0) -> bool:
-    """Whether an app profile's segments are what the kiln holds, allowing
-    for whole-degree rounding when the controller is in °C."""
-
-    if len(app_segments) != len(kiln_segments):
-        return False
-    return all(
-        abs(a.target_temp_f - k.target_temp_f) <= temp_tol_f
-        and abs(a.rate_f_per_hr - k.rate_f_per_hr) <= rate_tol_f
-        and round(a.hold_minutes) == round(k.hold_minutes)
-        for a, k in zip(app_segments, kiln_segments)
-    )

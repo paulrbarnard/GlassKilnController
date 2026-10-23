@@ -114,3 +114,18 @@ def parse_review(screens: list[str]) -> KilnProgram:
     if pos != len(states):
         raise ReviewParseError(f"unexpected screens after the last segment: {screens[pos:]}")
     return KilnProgram(slot=slot, segments=tuple(segments), celsius=bool(celsius))
+
+
+def same_segments(a, b, temp_tol_f: float = 2.0, rate_tol_f: float = 2.0) -> bool:
+    """Whether two programs are the same, allowing for the whole-degree
+    rounding the controller applies when it's in °C."""
+
+    a, b = list(a), list(b)
+    if len(a) != len(b):
+        return False
+    return all(
+        abs(x.target_temp_f - y.target_temp_f) <= temp_tol_f
+        and abs(x.rate_f_per_hr - y.rate_f_per_hr) <= rate_tol_f
+        and round(x.hold_minutes) == round(y.hold_minutes)
+        for x, y in zip(a, b)
+    )
