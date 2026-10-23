@@ -51,6 +51,26 @@ MENU_CHANGE_TIMEOUT_S = 3.0
 MENU_PRESS_ATTEMPTS = 3
 
 
+# Value entry on the kiln (2026-10-22/23, UP held at duty 220): the GM LT
+# waits ~2 s before repeating, then speeds up, levelling off around 17
+# steps/s. (seconds held, steps moved):
+SCROLL_CURVE = ((2.0, 0), (3.0, 3), (5.0, 19), (7.0, 41), (8.0, 55), (12.0, 121))
+SCROLL_HOLD_MAX_S = 12.0  # longer holds heat the coil
+SCROLL_REST_MAX_S = 6.0  # rest after a hold, up to this long, for the coil
+TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
+
+
+def scroll_hold_for(steps: float) -> float:
+    """How long to hold UP/DOWN to scroll about ``steps`` (capped)."""
+
+    if steps <= SCROLL_CURVE[1][1]:
+        return SCROLL_CURVE[1][0]
+    for (t0, n0), (t1, n1) in zip(SCROLL_CURVE, SCROLL_CURVE[1:]):
+        if steps <= n1:
+            return t0 + (t1 - t0) * (steps - n0) / (n1 - n0)
+    return SCROLL_HOLD_MAX_S
+
+
 class SequenceError(RuntimeError):
     """Raised when a press didn't produce the expected display state within
     its timeout — most commonly a missed timing window. The caller (usually
@@ -301,6 +321,12 @@ class Sequencer:
         anywhere. Safe to call as a recovery step even if we're not sure
         what state the controller is in."""
 
+        # Already there (IdLE alternates with the temperature about twice a
+        # second, so 2 s is plenty to see it): skip the 5 s hold. Most
+        # actions start from IdLE, and each long press warms the coil.
+        if self.vision.wait_for(lambda s: s.message is DisplayMessage.IDLE, 2.0) is not None:
+            return
+        self._check_abort()
         self._progress("returning to IdLE")
         self.bridge.hold_long(Key.ENTER)
         # Stop at whichever of IdLE/PF appears first, rather than polling
@@ -599,6 +625,129 @@ class Sequencer:
             raise SequenceError(f"asked for slot {slot} but the controller showed slot {programs[0].slot}")
         return programs[0]
 
+    # -- Writing PRO slots (Pro > slot > SEG > rA/°/HLd per segment) ----------
+
+    def _value(self, scale: int = 1, timeout_s: float = 3.0) -> int:
+        """The value on an edit screen (which alternates its label with the
+        value), as an integer: ``scale`` 100 turns a hold's H.MM into HHMM."""
+
+        state = self.vision.wait_for(
+            lambda s: s.message is None and s.numeric_value is not None, timeout_s
+        )
+        if state is None:
+            raise SequenceError("no value on the display")
+        return round(state.numeric_value * scale)
+
+    def _set_value(self, target: int, scale: int = 1, max_steps: int = 80) -> None:
+        """Bring the value being edited to ``target``. Big changes use a held
+        UP/DOWN sized to land a little short (the controller repeats after
+        ~2 s, accelerating to ~17 steps/s), with a rest after each for the
+        coil; the last few steps are single taps, each checked on the
+        display. Overshoot is corrected the same way."""
+
+        current = self._value(scale)
+        for _ in range(max_steps):
+            self._check_abort()
+            delta = target - current
+            if delta == 0:
+                return
+            key = Key.UP if delta > 0 else Key.DOWN
+            if abs(delta) > TAP_LIMIT:
+                hold_s = scroll_hold_for(abs(delta) * 0.85 - 2)
+                self.bridge.press(key, int(hold_s * 1000))
+                time.sleep(min(hold_s, SCROLL_REST_MAX_S))
+                current = self._value(scale)
+                continue
+            for _attempt in range(MENU_PRESS_ATTEMPTS):
+                self._press(key)
+                state = self.vision.wait_for(
+                    lambda s: s.message is None
+                    and s.numeric_value is not None
+                    and round(s.numeric_value * scale) != current,
+                    MENU_CHANGE_TIMEOUT_S,
+                )
+                if state is not None:
+                    current = round(state.numeric_value * scale)
+                    break
+            else:
+                raise SequenceError(f"{key.name} didn't change the value {current}")
+        raise SequenceError(f"couldn't set the value to {target} (stuck at {current})")
+
+    def _next_field(self, current: DisplayMessage, current_segment: Optional[int], expect) -> ControllerState:
+        """ENTER saves the value showing and moves to the next field. Press
+        again only while the display still shows the current field (its label
+        or its value), never once the next one has appeared."""
+
+        for _ in range(MENU_PRESS_ATTEMPTS):
+            self._press(Key.ENTER)
+            state = self.vision.wait_for(
+                lambda s: s.is_error or self.abort.is_set() or expect(s), MENU_CHANGE_TIMEOUT_S
+            )
+            self._check_abort()
+            if state is not None:
+                if state.is_error:
+                    raise ControllerErrorState(state)
+                return state
+            now = self._read()
+            still_here = (now.message is current and now.segment_number == current_segment) or (
+                now.message is None and now.numeric_value is not None
+            )
+            if not still_here:
+                raise SequenceError(f"unexpected {now.raw_text!r} after ENTER on {current.value}")
+        raise SequenceError(f"ENTER on {current.value} didn't register")
+
+    def write_program(self, slot: int, segments: list[RampHoldSegment]) -> None:
+        """Enter ``segments`` into PRO ``slot`` without starting it: Pro >
+        slot > SEG count > per segment rate, temperature (in the
+        controller's unit) and hold > rEdI, then back to IdLE. The caller
+        should read the slot back (read_program) to check it."""
+
+        if not 1 <= slot <= 5:
+            raise ValueError(f"slot must be 1-5, got {slot}")
+        if not 1 <= len(segments) <= 8:
+            raise ValueError("a program has 1-8 segments")
+        self._require_idle("writing a program to the kiln")
+        self.check_controller_unit()
+        temp_label = DisplayMessage.DEG_C if self.controller_celsius else DisplayMessage.DEG_F
+        self._progress(f"writing program slot {slot} ({len(segments)} segments)")
+
+        def action() -> None:
+            self.select_mode(Mode.PRO)
+            self._choose_slot(slot)
+            self._next_field(
+                DisplayMessage.PRO, None, lambda s: s.message is DisplayMessage.SEGMENT_COUNT
+            )
+            self._set_value(len(segments))
+            for i, seg in enumerate(segments, start=1):
+                self._next_field(
+                    DisplayMessage.SEGMENT_COUNT if i == 1 else DisplayMessage.HOLD_PROMPT,
+                    None if i == 1 else i - 1,
+                    lambda s, i=i: s.message is DisplayMessage.RATE_PROMPT and s.segment_number == i,
+                )
+                self._progress(f"slot {slot} segment {i}: rate")
+                self._set_value(int(self._controller_rate(seg.rate_f_per_hr)))
+                self._next_field(
+                    DisplayMessage.RATE_PROMPT, i,
+                    lambda s, i=i: s.message is temp_label and s.segment_number == i,
+                )
+                self._progress(f"slot {slot} segment {i}: temperature")
+                self._set_value(int(self._controller_temp(seg.target_temp_f)))
+                self._next_field(
+                    temp_label, i,
+                    lambda s, i=i: s.message is DisplayMessage.HOLD_PROMPT and s.segment_number == i,
+                )
+                self._progress(f"slot {slot} segment {i}: hold")
+                hours, minutes = divmod(int(round(seg.hold_minutes)), 60)
+                self._set_value(hours * 100 + minutes, scale=100)
+            self._next_field(
+                DisplayMessage.HOLD_PROMPT, len(segments),
+                lambda s: s.message is DisplayMessage.READY,
+            )
+            self.goto_idle()
+
+        self._backing_out_on_failure(action)
+        self._progress(f"slot {slot} written")
+
     # -- Profile entry point --------------------------------------------------
 
     def run_profile(self, profile: Profile) -> None:
@@ -633,11 +782,11 @@ class Sequencer:
             action()
         except SequenceAborted:
             raise
-        except SequenceError:
+        except Exception:  # noqa: BLE001 - a Bridge timeout too, not just SequenceError
             try:
                 self.goto_idle()
-            except SequenceError:
-                log.warning("couldn't return to IdLE after a failed Options action")
+            except Exception:  # noqa: BLE001
+                log.warning("couldn't return to IdLE after a failed action")
             raise
 
     def toggle_mgf(self) -> None:

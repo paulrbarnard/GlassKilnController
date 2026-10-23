@@ -73,7 +73,11 @@ class RealBridge(KilnBridge):
         self._bridge = Bridge
 
     def press(self, key: Key, hold_ms: int = SHORT_PRESS_MS) -> None:
-        ok = self._bridge.call("press_button", key.value, hold_ms)
+        # press_button blocks for the whole press; the Bridge's default 10 s
+        # reply timeout is shorter than a scroll hold (up to 12 s), so it
+        # gave up while the solenoid was still pressing (2026-10-23).
+        timeout_s = max(10, int(hold_ms / 1000) + 5)
+        ok = self._bridge.call("press_button", key.value, hold_ms, timeout=timeout_s)
         if not ok:
             raise BridgeError(f"press_button({key!r}, {hold_ms}) rejected by sketch")
 

@@ -34,6 +34,9 @@
 #                   lost contact part way through a 5 s hold, which acts
 #                   as a plain ENTER (in Pro editing: save and move on);
 #                   160 held and exited cleanly (StOP > IdLE).
+#                   The next morning 160 failed again (a long ENTER acted as
+#                   a tap), so ENTER also uses 220. The app now skips the
+#                   long ENTER when the controller already shows IdLE.
 #
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
@@ -42,7 +45,7 @@ enter:
   kick_ms: 100
   hold_duty: 240
   settle_ms: 200
-  long_hold_duty: 160
+  long_hold_duty: 220
 
 up:
   kick_ms: 100

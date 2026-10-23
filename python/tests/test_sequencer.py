@@ -27,7 +27,7 @@ def test_select_mode_auto_when_already_showing_auto():
     sequencer, bridge = make_sequencer(["IdLE", "AUto", "FA5t"])
     sequencer.select_mode(Mode.AUTO)
     assert bridge.presses == [
-        (Key.ENTER, LONG_MS),  # goto_idle's long hold
+        # already at IdLE: no long hold to get there
         (Key.ENTER, SHORT_PRESS_MS),  # open mode menu
         (Key.ENTER, SHORT_PRESS_MS),  # select AUTO
     ]
@@ -40,8 +40,7 @@ def test_run_glassfire_full_fuse_slow_no_mgf():
     sequencer, bridge = make_sequencer(["IdLE", "AUto", "SLo", "FULL", "rEdI", "ON"])
     sequencer.run_glassfire(Speed.SLOW, Process.FULL_FUSE)
     assert bridge.presses == [
-        (Key.ENTER, LONG_MS),  # goto_idle
-        (Key.ENTER, SHORT_PRESS_MS),  # open mode menu
+        (Key.ENTER, SHORT_PRESS_MS),  # open mode menu (already at IdLE)
         (Key.ENTER, SHORT_PRESS_MS),  # select AUTO
         (Key.ENTER, SHORT_PRESS_MS),  # select speed SLo
         (Key.ENTER, SHORT_PRESS_MS),  # select process FULL
@@ -67,7 +66,6 @@ def test_run_glassfire_scrolls_when_not_already_on_target():
     )
     sequencer.run_glassfire(Speed.FAST, Process.FULL_FUSE)
     assert bridge.presses == [
-        (Key.ENTER, LONG_MS),
         (Key.ENTER, SHORT_PRESS_MS),  # open mode menu (shows Pro)
         (Key.UP, SHORT_PRESS_MS),  # scroll Pro -> Auto
         (Key.ENTER, SHORT_PRESS_MS),  # select AUTO
@@ -82,12 +80,41 @@ def test_run_glassfire_scrolls_when_not_already_on_target():
 def test_goto_idle_clears_power_failure():
     # p.30: PF on connect must be cleared with ENTER before IdLE is
     # trustworthy.
-    sequencer, bridge = make_sequencer(["PF", "IdLE"])
-    sequencer.goto_idle()
-    assert bridge.presses == [
-        (Key.ENTER, LONG_MS),
+    class PowerFailed:
+        """Shows PF until ENTER is tapped, as the controller does."""
+
+        def __init__(self):
+            self.screen, self.presses = "PF", []
+
+        def press(self, key, hold_ms=SHORT_PRESS_MS):
+            self.presses.append((key, hold_ms))
+            if key is Key.ENTER and hold_ms < LONG_MS:
+                self.screen = "IdLE"
+
+        def hold_long(self, key):
+            self.press(key, LONG_MS)
+
+        def read(self):
+            from kiln.vision import build_controller_state
+
+            return build_controller_state(self.screen)
+
+        def wait_for(self, predicate, timeout_s, poll_interval_s=0.0):
+            state = self.read()
+            return state if predicate(state) else None
+
+    fake = PowerFailed()
+    Sequencer(bridge=fake, vision=fake).goto_idle()
+    assert fake.presses == [
+        (Key.ENTER, LONG_MS),  # not at IdLE, so hold ENTER
         (Key.ENTER, SHORT_PRESS_MS),  # clear PF
     ]
+
+
+def test_goto_idle_skips_the_long_hold_when_already_idle():
+    sequencer, bridge = make_sequencer(["IdLE"])
+    sequencer.goto_idle()
+    assert bridge.presses == []
 
 
 class _MenuController:
@@ -270,3 +297,77 @@ def test_firing_is_refused_when_the_controller_unit_differs():
     sequencer, _ = make_sequencer(["1dLE."])
     sequencer.controller_celsius = True
     sequencer.check_controller_unit()  # matches: no error
+
+
+class _ValueEditor:
+    """One PRO value being edited: a tap moves it by 1, a hold scrolls by
+    the curve measured on the kiln; ``miss`` lists tap numbers to ignore."""
+
+    def __init__(self, value, scale=1, miss=()):
+        self.value, self.scale, self.miss, self.presses, self.taps = value, scale, set(miss), [], 0
+
+    def press(self, key, hold_ms=SHORT_PRESS_MS):
+        import kiln.sequencer as seq
+
+        self.presses.append((key, hold_ms))
+        sign = 1 if key is Key.UP else -1
+        if hold_ms <= 1000:
+            self.taps += 1
+            if self.taps not in self.miss:
+                self.value += sign
+        else:
+            # The real curve, but a little faster or slower than measured.
+            steps = round(_curve_steps(seq.SCROLL_CURVE, hold_ms / 1000) * 1.1)
+            self.value += sign * steps
+
+    def ping(self):
+        return True
+
+    def read(self):
+        from kiln.vision import build_controller_state
+
+        shown = f"{self.value / self.scale:05.2f}." if self.scale == 100 else f"{self.value:04d}."
+        return build_controller_state(shown)
+
+    def wait_for(self, predicate, timeout_s, poll_interval_s=0.0):
+        state = self.read()
+        return state if predicate(state) else None
+
+
+def _curve_steps(curve, seconds):
+    for (t0, n0), (t1, n1) in zip(curve, curve[1:]):
+        if seconds <= t1:
+            return n0 + (n1 - n0) * max(0.0, seconds - t0) / (t1 - t0)
+    return curve[-1][1] + 17 * (seconds - curve[-1][0])
+
+
+def _editing(monkeypatch, value, scale=1, miss=()):
+    import kiln.sequencer as seq
+
+    monkeypatch.setattr(seq, "SCROLL_REST_MAX_S", 0.0)
+    monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
+    fake = _ValueEditor(value, scale, miss)
+    return Sequencer(bridge=fake, vision=fake), fake
+
+
+def test_set_value_scrolls_big_changes_then_taps(monkeypatch):
+    sequencer, fake = _editing(monkeypatch, 60)
+    sequencer._set_value(650)  # e.g. 60 -> 650 °C
+    assert fake.value == 650
+    holds = [p for p in fake.presses if p[1] > 1000]
+    taps = [p for p in fake.presses if p[1] <= 1000]
+    assert holds and all(h[1] <= 12000 for h in holds)
+    assert len(taps) <= 30  # most of the distance was scrolled
+
+
+def test_set_value_comes_back_down_and_survives_missed_taps(monkeypatch):
+    sequencer, fake = _editing(monkeypatch, 433, miss={1, 3})
+    sequencer._set_value(425)  # small change: taps only, two of them missed
+    assert fake.value == 425
+    assert all(p[1] <= 1000 and p[0] is Key.DOWN for p in fake.presses)
+
+
+def test_set_value_holds_are_hours_and_minutes(monkeypatch):
+    sequencer, fake = _editing(monkeypatch, 1200, scale=100)  # showing 12.00
+    sequencer._set_value(30, scale=100)  # 0 h 30 min
+    assert fake.value == 30

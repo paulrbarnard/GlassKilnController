@@ -302,6 +302,37 @@ def register_routes(
             "programs": [kiln_programs[s] for s in sorted(kiln_programs)],
         }
 
+    def write_kiln_program(slot: str, body: dict | None = None):
+        """Enter an app custom profile into PRO ``slot`` on the kiln, then
+        read the slot back and only report success if it matches. On
+        success the profile becomes the one assigned to that slot."""
+
+        slot_n = int(slot)
+        profile_id = (body or {}).get("profile_id")
+        try:
+            profile = library.get(profile_id)
+        except KeyError:
+            return {"error": f"no such profile: {profile_id}"}
+        if profile.kind is not ProfileKind.RAMP_HOLD or not profile.segments:
+            return {"error": "only custom Ramp & Hold profiles can be sent to the kiln"}
+        if not 1 <= slot_n <= 5:
+            return {"error": "slot must be 1-5"}
+
+        def task() -> None:
+            sequencer.write_program(slot_n, profile.segments)
+            push_progress(f"Checking slot {slot_n} by reading it back")
+            program = sequencer.read_program(slot_n)
+            if not _same_segments(profile.segments, program.segments):
+                kiln_programs[slot_n] = _slot_entry(slot_n, program=program)
+                ui.send_message("kiln_programs", {"programs": list_kiln_programs()["programs"], "done": True})
+                raise SequenceError(f"slot {slot_n} read back differently from “{profile.name}”")
+            library.set_active_slot(profile.id, slot_n)
+            kiln_programs[slot_n] = _slot_entry(slot_n, program=program)
+            ui.send_message("kiln_programs", {"programs": list_kiln_programs()["programs"], "done": True})
+            push_progress(f"“{profile.name}” is now in kiln slot {slot_n} (checked).")
+
+        return run_exclusive(f"writing kiln slot {slot_n}", task)
+
     def import_kiln_program(slot: str, body: dict | None = None):
         """Save a slot read from the kiln as an app custom profile, active
         in that slot (replacing whichever profile held it)."""
@@ -395,6 +426,7 @@ def register_routes(
     ui.expose_api("POST", "/api/kiln_programs/read", read_kiln_programs)
     ui.expose_api("GET", "/api/kiln_programs", list_kiln_programs)
     ui.expose_api("POST", "/api/kiln_programs/{slot}/import", import_kiln_program)
+    ui.expose_api("POST", "/api/kiln_programs/{slot}/write", write_kiln_program)
     ui.expose_api("POST", "/api/skip", skip_segment)
     ui.expose_api("POST", "/api/add_time", add_time)
     ui.expose_api("POST", "/api/add_temp", add_temperature)
