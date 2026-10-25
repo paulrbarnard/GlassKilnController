@@ -209,9 +209,17 @@ def register_routes(
                 push_progress(f"Programming failed ({exc}); returning the controller to IdLE")
                 try:
                     sequencer.stop()
-                    monitor.finish("error", f"Programming failed and was backed out: {exc}")
+                    monitor.finish(
+                        "error",
+                        f"Couldn't program the kiln: {exc}. The controller is back at IdLE "
+                        "and nothing was started; you can try again.",
+                    )
                 except SequenceError as stop_exc:
-                    monitor.finish("error", f"Programming failed ({exc}) and backing out failed too: {stop_exc}")
+                    monitor.finish(
+                        "error",
+                        f"Couldn't program the kiln ({exc}), and couldn't return the controller "
+                        f"to IdLE ({stop_exc}). Switch the kiln off and on at its power switch.",
+                    )
                 raise
 
         def before_start() -> None:

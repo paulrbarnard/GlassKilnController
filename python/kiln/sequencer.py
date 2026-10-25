@@ -419,19 +419,49 @@ class Sequencer:
             )
 
     def _require_idle(self, action: str, timeout_s: float = 3.0) -> None:
-        """Refuse to start an Options action unless the controller shows
-        IdLE. Getting to Options starts with "hold ENTER" (back to IdLE),
-        which would stop a firing in progress."""
+        """Make sure the controller is at IdLE before ``action``.
 
-        state = self.vision.wait_for(
-            lambda s: s.message is DisplayMessage.IDLE, timeout_s
-        )
-        if state is None:
-            self._require_display(action)
+        If it's in a menu or at a prompt (left there by an interrupted
+        action), return it to IdLE by holding ENTER and carry on. If it seems
+        to be firing (only the temperature showing), don't: holding ENTER
+        would stop the firing. With the front panel covered there's no
+        manual way back, so when the controller won't return to IdLE the
+        error says to power-cycle the kiln.
+        """
+
+        if self.vision.wait_for(lambda s: s.message is DisplayMessage.IDLE, timeout_s) is not None:
+            return
+        self._require_display(action)
+        if self._looks_like_firing():
             raise SequenceError(
-                f"not {action}: the controller isn't showing IdLE "
-                "(firing, or in a menu); return it to IdLE first"
+                f"not {action}: the kiln seems to be firing (only the temperature is "
+                "showing). Stop the firing first."
             )
+        self._progress("the controller isn't at IdLE; returning it there first")
+        try:
+            self.goto_idle()
+        except SequenceError:
+            pass
+        if self.vision.wait_for(lambda s: s.message is DisplayMessage.IDLE, timeout_s) is None:
+            raise SequenceError(
+                f"not {action}: couldn't return the controller to IdLE. Switch the kiln "
+                "off and on at its power switch, then try again."
+            )
+
+    def _looks_like_firing(self, watch_s: float = 4.0) -> bool:
+        """During a firing the display shows only the temperature (or ON);
+        a menu or prompt shows a label within a second or two (value screens
+        alternate label and value). So: firing if nothing but plain numbers
+        or ON is seen for ``watch_s``."""
+
+        deadline = time.monotonic() + watch_s
+        while time.monotonic() < deadline:
+            state = self.vision.read()
+            if state.message is DisplayMessage.ON:
+                return True
+            if state.message is not None:
+                return False
+        return True
 
     def _require_display(self, action: str) -> None:
         """Raise a clear error if the camera can't read the display at all

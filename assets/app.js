@@ -348,7 +348,13 @@ function renderFiring() {
   const name = (firingProfile && firingProfile.name) || st.profile_name || '';
   const icon = firingProfile ? svgIcon(processIcon(firingProfile.process), 24) : '';
   document.getElementById('run-title').innerHTML = `${icon} Firing: ${name}`;
-  document.getElementById('run-phase').textContent = PHASE_LABELS[st.phase] || st.phase;
+  // An error before the kiln ever started firing means programming failed:
+  // say so, and offer to try again (the app returns the controller to IdLE).
+  const programmingFailed = st.phase === 'error' && !st.fired_at;
+  document.getElementById('run-phase').textContent = programmingFailed
+    ? 'Programming failed'
+    : PHASE_LABELS[st.phase] || st.phase;
+  document.getElementById('run-retry-btn').hidden = !programmingFailed || !firingProfile;
   document.getElementById('run-message').textContent = st.message || '';
   document.getElementById('run-temp').textContent =
     st.temp !== null && st.temp !== undefined ? `${Math.round(st.temp)}°${st.unit}` : '–';
@@ -696,6 +702,10 @@ document.getElementById('add-temp-btn').addEventListener('click', () =>
 );
 document.getElementById('stop-btn').addEventListener('click', stopFiring);
 document.getElementById('run-done-btn').addEventListener('click', goHome);
+document.getElementById('run-retry-btn').addEventListener('click', () => {
+  currentProfile = firingProfile;
+  startFiring();
+});
 document.getElementById('firing-banner').addEventListener('click', openRunScreen);
 
 document.getElementById('editor-back-btn').addEventListener('click', openCustom);

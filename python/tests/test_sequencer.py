@@ -176,7 +176,7 @@ def test_options_actions_refuse_unless_idle():
     # Mid-firing the display shows temperatures, never IdLE.
     sequencer, bridge = make_sequencer(["  796."])
     sequencer.vision.wait_for = lambda predicate, timeout_s, poll_interval_s=0.15: None
-    with pytest.raises(SequenceError, match="isn't showing IdLE"):
+    with pytest.raises(SequenceError, match="seems to be firing"):
         sequencer.set_temperature_scale(celsius=True)
     assert bridge.presses == []  # nothing pressed, so no hold-ENTER stop
 
@@ -415,3 +415,36 @@ def test_a_camera_failure_is_reported_as_such():
     with pytest.raises(SequenceError, match="can't see the kiln display"):
         sequencer._require_idle("writing a program")
     assert bridge.presses == []
+
+
+def test_left_in_a_menu_is_returned_to_idle_automatically():
+    class InMenu:
+        """Showing a menu ("0Pt") until ENTER is held, then IdLE."""
+
+        def __init__(self):
+            self.screen, self.presses = "0Pt .", []
+
+        def press(self, key, hold_ms=SHORT_PRESS_MS):
+            self.presses.append((key, hold_ms))
+            if key is Key.ENTER and hold_ms >= LONG_MS:
+                self.screen = "1dLE."
+
+        def hold_long(self, key):
+            self.press(key, LONG_MS)
+
+        def ping(self):
+            return True
+
+        def read(self):
+            from kiln.vision import build_controller_state
+
+            return build_controller_state(self.screen)
+
+        def wait_for(self, predicate, timeout_s, poll_interval_s=0.0):
+            state = self.read()
+            return state if predicate(state) else None
+
+    fake = InMenu()
+    Sequencer(bridge=fake, vision=fake)._require_idle("starting")
+    assert fake.presses == [(Key.ENTER, LONG_MS)]
+    assert fake.screen == "1dLE."
