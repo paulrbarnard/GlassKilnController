@@ -68,11 +68,11 @@ TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
 TAP_GAP_S = 0.25  # between taps in a burst
 # Closed-loop scroll holds (_hold_towards): how far back to measure the
 # scroll speed, how much further the value runs after release is asked for
-# (camera, Bridge and button), and how long to let the display settle after.
+# (camera, Bridge and button).
 SCROLL_RATE_WINDOW_S = 0.3
 RELEASE_LAG_S = 0.25
 RELEASE_LEAD = 1.5
-SCROLL_SETTLE_S = 0.6
+SETTLE_GAP_S = 0.4  # two readings this far apart must agree for a value to count as settled
 
 
 def scroll_hold_for(steps: float) -> float:
@@ -725,8 +725,7 @@ class Sequencer:
             if abs(delta) > TAP_LIMIT:
                 before = current
                 released_at = self._hold_towards(key, target, current, scale)
-                time.sleep(SCROLL_SETTLE_S)
-                current = self._value(scale)
+                current = self._settled_value(scale)
                 log.info(
                     "held %s: %d -> %d (released at %s, target %d)",
                     key.name, before, current, released_at, target,
@@ -738,15 +737,36 @@ class Sequencer:
                 self._press(key)
                 time.sleep(TAP_GAP_S)
             before = current
-            state = self.vision.wait_for(
-                lambda s: s.message is None and s.numeric_value is not None, MENU_CHANGE_TIMEOUT_S
+            # The display takes a moment to show the taps; wait for the
+            # value to move, then for it to settle, before judging them.
+            moved = self.vision.wait_for(
+                lambda s: s.message is None
+                and s.numeric_value is not None
+                and round(s.numeric_value * scale) != before,
+                MENU_CHANGE_TIMEOUT_S,
             )
-            if state is None:
-                raise SequenceError("no value on the display after tapping")
-            current = round(state.numeric_value * scale)
-            if current == before:
-                raise SequenceError(f"{key.name} taps didn't change the value {current}")
+            if moved is None:
+                raise SequenceError(f"{key.name} taps didn't change the value {before}")
+            current = self._settled_value(scale)
         raise SequenceError(f"couldn't set the value to {target} (stuck at {current})")
+
+    def _settled_value(self, scale: int, timeout_s: float = 4.0) -> int:
+        """The value once it has stopped moving: two readings at least
+        SETTLE_GAP_S apart that agree. After a scroll the value can still be
+        coasting, and after taps the display lags them; a single reading
+        taken too soon was wrong in both cases on the kiln (2026-10-25)."""
+
+        deadline = time.monotonic() + timeout_s
+        last = None
+        while time.monotonic() < deadline:
+            value = self._value(scale)
+            if value == last:
+                return value
+            last = value
+            time.sleep(SETTLE_GAP_S)
+        if last is None:
+            raise SequenceError("no value on the display")
+        return last
 
     def _hold_towards(self, key: Key, target: int, current: int, scale: int) -> Optional[int]:
         """Hold ``key`` while watching the value, and release when it's about

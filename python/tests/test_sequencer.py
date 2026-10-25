@@ -370,7 +370,7 @@ def _editing(monkeypatch, value, scale=1, miss=()):
 
     fake = _ValueEditor(value, scale, miss)
     monkeypatch.setattr(seq, "TAP_GAP_S", 0.0)
-    monkeypatch.setattr(seq, "SCROLL_SETTLE_S", 0.0)
+    monkeypatch.setattr(seq, "SETTLE_GAP_S", 0.0)
     monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
     monkeypatch.setattr(seq.time, "monotonic", fake.clock)
     return Sequencer(bridge=fake, vision=fake), fake
