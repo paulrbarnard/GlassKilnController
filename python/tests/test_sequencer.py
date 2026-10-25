@@ -346,7 +346,8 @@ class _ValueEditor:
         from kiln.vision import build_controller_state
 
         value = self._held_value(self.now) if self.hold else self.value
-        shown = f"{value / self.scale:05.2f}." if self.scale == 100 else f"{value:04d}."
+        # scale 100: value is minutes, shown as H.MM
+        shown = f"{value // 60:02d}.{value % 60:02d}." if self.scale == 100 else f"{value:04d}."
         return build_controller_state(shown)
 
     def read_fast(self):
@@ -371,8 +372,7 @@ def _editing(monkeypatch, value, scale=1, miss=(), double=()):
     import kiln.sequencer as seq
 
     fake = _ValueEditor(value, scale, miss, double)
-    monkeypatch.setattr(seq, "TAP_GAP_S", 0.0)
-    monkeypatch.setattr(seq, "QUIET_BEFORE_TAPS_S", 0.0)
+    monkeypatch.setattr(seq, "QUIET_BEFORE_TAP_S", 0.0)
     monkeypatch.setattr(seq, "SETTLE_GAP_S", 0.0)
     monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
     monkeypatch.setattr(seq.time, "monotonic", fake.clock)
@@ -422,9 +422,18 @@ def test_set_value_gives_up_after_its_attempts(monkeypatch):
 
 
 def test_set_value_holds_are_hours_and_minutes(monkeypatch):
-    sequencer, fake = _editing(monkeypatch, 1200, scale=100)  # showing 12.00
+    sequencer, fake = _editing(monkeypatch, 12 * 60, scale=100)  # showing 12.00
     sequencer._set_value(30, scale=100)  # 0 h 30 min
     assert fake.value == 30
+
+
+def test_set_value_counts_hold_times_in_minutes(monkeypatch):
+    # 0.55 -> 1.00 is 5 taps, not a scroll of "45"
+    sequencer, fake = _editing(monkeypatch, 55, scale=100)
+    sequencer._set_value(60, scale=100)
+    assert fake.value == 60
+    assert [p for p in fake.presses if p[1] < 0] == []
+    assert len(fake.presses) == 5
 
 
 def test_a_camera_failure_is_reported_as_such():

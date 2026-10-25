@@ -65,14 +65,13 @@ SCROLL_CURVE = (
 )
 SCROLL_HOLD_MAX_S = 30.0  # at duty 80 a 30 s hold costs ~3.0 of the 6.0 heat budget
 TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
-TAP_GAP_S = 0.6  # between taps in a burst (tested clean on the kiln at 0.6-3 s)
 # The GM LT sometimes steps 2-3 for one tap (one beep) when UP/DOWN were
-# pressed or held within the last second or two: in writes on the kiln
-# (2026-10-25) corrections tapped ~1 s after the previous taps overshot again
-# and again, while taps 3 s or more after the last press were single steps
-# (and scripts/tap_test.py found none at all from 2 s after a hold). So
-# every burst of taps waits until UP/DOWN have been left alone this long.
-QUIET_BEFORE_TAPS_S = 3.0
+# pressed or held shortly before: in writes on the kiln (2026-10-25) bursts
+# of taps 0.6-1 s apart overshot again and again, even 3 s after a hold,
+# while single taps 2 s or more after the last press (scripts/tap_test.py)
+# were single steps. So taps go one at a time, each checked, each this long
+# after the last UP/DOWN press.
+QUIET_BEFORE_TAP_S = 2.0
 # Closed-loop scroll holds (_hold_towards): how far back to measure the
 # scroll speed, how much further the value runs after release is asked for
 # (camera, Bridge and button).
@@ -80,15 +79,26 @@ SCROLL_RATE_WINDOW_S = 0.3
 RELEASE_LAG_S = 0.25
 RELEASE_LEAD = 1.5
 SETTLE_GAP_S = 0.4  # two readings this far apart must agree for a value to count as settled
-# Holds and tap bursts allowed to bring one value to its target (each
-# burst corrects whatever the last one missed or double counted).
-VALUE_ATTEMPTS = 12
+# Holds and taps allowed to bring one value to its target (each corrects
+# whatever the last one missed or double counted).
+VALUE_ATTEMPTS = 24
 # A watched scroll ignores readings that jump further than
 # SLACK + FACTOR * speed * time since the last good reading (speed at least
 # MIN_RATE steps/s, so the first readings of a hold aren't all refused).
 SCROLL_JUMP_SLACK = 20
 SCROLL_JUMP_FACTOR = 3.0
 SCROLL_MIN_RATE = 50.0
+
+
+def _steps(value: float, scale: int) -> int:
+    """A display value in UP/DOWN steps: ``scale`` 100 is a hold's H.MM,
+    which steps a minute at a time (0.59 -> 1.00 is one step), so it's
+    counted in minutes."""
+
+    if scale == 100:
+        hours = int(value)
+        return hours * 60 + round((value - hours) * 100)
+    return round(value * scale)
 
 
 def scroll_hold_for(steps: float) -> float:
@@ -714,25 +724,25 @@ class Sequencer:
 
     def _value(self, scale: int = 1, timeout_s: float = 3.0) -> int:
         """The value on an edit screen (which alternates its label with the
-        value), as an integer: ``scale`` 100 turns a hold's H.MM into HHMM."""
+        value), as an integer: ``scale`` 100 reads a hold's H.MM as minutes."""
 
         state = self.vision.wait_for(
             lambda s: s.message is None and s.numeric_value is not None, timeout_s
         )
         if state is None:
             raise SequenceError("no value on the display")
-        return round(state.numeric_value * scale)
+        return _steps(state.numeric_value, scale)
 
     def _set_value(self, target: int, scale: int = 1, max_steps: int = VALUE_ATTEMPTS) -> None:
         """Bring the value being edited to ``target``. Big changes use a held
         UP/DOWN, watched and released just short (the controller waits ~2 s,
-        then scrolls faster and faster); the last few steps are a burst of
-        taps, each burst QUIET_BEFORE_TAPS_S after the last UP/DOWN press
-        (closer, the controller can step 2-3 a tap), then a settled reading. The GM LT
-        itself sometimes misses a press or counts one twice (seen when
-        programming it by hand too), so a burst that lands off target, or
-        doesn't move the value at all, is simply corrected from the new
-        reading, up to ``max_steps`` holds and bursts in all. The heat budget
+        then scrolls faster and faster); the last few steps are single taps,
+        each QUIET_BEFORE_TAP_S after the last UP/DOWN press and checked
+        before the next. The GM LT itself sometimes misses a press or counts
+        one two or three times (seen when programming it by hand too, and
+        more often when presses come close together), so a tap that lands
+        off target, or doesn't move the value at all, is simply corrected
+        from the new reading, up to ``max_steps`` holds and taps in all. The heat budget
         (bridge.py) adds any cooling pause a coil needs."""
 
         current = self._value(scale)
@@ -753,13 +763,9 @@ class Sequencer:
                     key.name, before, current, released_at, target,
                 )
                 continue
-            # A burst of taps without checking each one (the display only
-            # shows the value every other half second), then one reading.
             if last_press is not None:
-                time.sleep(max(0.0, QUIET_BEFORE_TAPS_S - (time.monotonic() - last_press)))
-            for _tap in range(abs(delta)):
-                self._press(key)
-                time.sleep(TAP_GAP_S)
+                time.sleep(max(0.0, QUIET_BEFORE_TAP_S - (time.monotonic() - last_press)))
+            self._press(key)
             last_press = time.monotonic()
             before = current
             # The display takes a moment to show the taps; wait for the
@@ -767,14 +773,14 @@ class Sequencer:
             moved = self.vision.wait_for(
                 lambda s: s.message is None
                 and s.numeric_value is not None
-                and round(s.numeric_value * scale) != before,
+                and _steps(s.numeric_value, scale) != before,
                 MENU_CHANGE_TIMEOUT_S,
             )
             if moved is None:
-                log.info("tapped %s x%d: no change from %d (target %d)", key.name, abs(delta), before, target)
+                log.info("tapped %s: no change from %d (target %d)", key.name, before, target)
                 continue
             current = self._settled_value(scale)
-            log.info("tapped %s x%d: %d -> %d (target %d)", key.name, abs(delta), before, current, target)
+            log.info("tapped %s: %d -> %d (target %d)", key.name, before, current, target)
         raise SequenceError(f"couldn't set the value to {target} (stuck at {current})")
 
     def _settled_value(self, scale: int, timeout_s: float = 4.0) -> int:
@@ -819,7 +825,7 @@ class Sequencer:
                 now = time.monotonic()
                 if state.message is not None or state.numeric_value is None:
                     continue
-                value = round(state.numeric_value * scale)
+                value = _steps(state.numeric_value, scale)
                 moved = (value - last) * sign
                 # A frame caught mid-change can read as anything (888 for a
                 # blurred 9xx, seen on the kiln), so a jump must fit what the
@@ -905,7 +911,7 @@ class Sequencer:
                 )
                 self._progress(f"slot {slot} segment {i}: hold")
                 hours, minutes = divmod(int(round(seg.hold_minutes)), 60)
-                self._set_value(hours * 100 + minutes, scale=100)
+                self._set_value(hours * 60 + minutes, scale=100)
             self._next_field(
                 DisplayMessage.HOLD_PROMPT, len(segments),
                 lambda s: s.message is DisplayMessage.READY,
