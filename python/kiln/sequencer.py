@@ -66,11 +66,13 @@ SCROLL_CURVE = (
 SCROLL_HOLD_MAX_S = 30.0  # at duty 80 a 30 s hold costs ~3.0 of the 6.0 heat budget
 TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
 TAP_GAP_S = 0.6  # between taps in a burst (tested clean on the kiln at 0.6-3 s)
-# After a held UP/DOWN the GM LT keeps its fast scroll going for a second or
-# two: taps within ~1 s of the release counted 2-3 steps each, and kept it
-# going; from 2 s on every tap was one step (scripts/tap_test.py
-# --after-hold, 2026-10-25). So taps wait this long after a hold.
-POST_HOLD_REST_S = 3.0
+# The GM LT sometimes steps 2-3 for one tap (one beep) when UP/DOWN were
+# pressed or held within the last second or two: in writes on the kiln
+# (2026-10-25) corrections tapped ~1 s after the previous taps overshot again
+# and again, while taps 3 s or more after the last press were single steps
+# (and scripts/tap_test.py found none at all from 2 s after a hold). So
+# every burst of taps waits until UP/DOWN have been left alone this long.
+QUIET_BEFORE_TAPS_S = 3.0
 # Closed-loop scroll holds (_hold_towards): how far back to measure the
 # scroll speed, how much further the value runs after release is asked for
 # (camera, Bridge and button).
@@ -724,9 +726,9 @@ class Sequencer:
     def _set_value(self, target: int, scale: int = 1, max_steps: int = VALUE_ATTEMPTS) -> None:
         """Bring the value being edited to ``target``. Big changes use a held
         UP/DOWN, watched and released just short (the controller waits ~2 s,
-        then scrolls faster and faster); after POST_HOLD_REST_S, so the fast
-        scroll has worn off, the last few steps are a burst of taps, then a
-        settled reading. The GM LT
+        then scrolls faster and faster); the last few steps are a burst of
+        taps, each burst QUIET_BEFORE_TAPS_S after the last UP/DOWN press
+        (closer, the controller can step 2-3 a tap), then a settled reading. The GM LT
         itself sometimes misses a press or counts one twice (seen when
         programming it by hand too), so a burst that lands off target, or
         doesn't move the value at all, is simply corrected from the new
@@ -734,6 +736,7 @@ class Sequencer:
         (bridge.py) adds any cooling pause a coil needs."""
 
         current = self._value(scale)
+        last_press: Optional[float] = None  # when UP/DOWN were last let go
         for _ in range(max_steps):
             self._check_abort()
             delta = target - current
@@ -743,9 +746,8 @@ class Sequencer:
             if abs(delta) > TAP_LIMIT:
                 before = current
                 released_at = self._hold_towards(key, target, current, scale)
-                released = time.monotonic()
+                last_press = time.monotonic()
                 current = self._settled_value(scale)
-                time.sleep(max(0.0, POST_HOLD_REST_S - (time.monotonic() - released)))
                 log.info(
                     "held %s: %d -> %d (released at %s, target %d)",
                     key.name, before, current, released_at, target,
@@ -753,9 +755,12 @@ class Sequencer:
                 continue
             # A burst of taps without checking each one (the display only
             # shows the value every other half second), then one reading.
+            if last_press is not None:
+                time.sleep(max(0.0, QUIET_BEFORE_TAPS_S - (time.monotonic() - last_press)))
             for _tap in range(abs(delta)):
                 self._press(key)
                 time.sleep(TAP_GAP_S)
+            last_press = time.monotonic()
             before = current
             # The display takes a moment to show the taps; wait for the
             # value to move, then for it to settle, before judging them.

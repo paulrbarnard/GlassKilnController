@@ -5,6 +5,9 @@ Runs inside the app container on the board:
     python /app/scripts/tap_test.py            (gets into a value first)
     python /app/scripts/tap_test.py --here     (already editing a value)
     python /app/scripts/tap_test.py --after-hold   (taps after a held press)
+    python /app/scripts/tap_test.py --after-hold --hold 10 --waits 3,5,8 --gap 0.6
+    python /app/scripts/tap_test.py --sweep    (single taps through ~160-180,
+                                                logging what the camera reads)
 
 Gets into a value (Pro > slot > SEG > segment 1 rate), rests 5 s, then for
 each gap (longest first) taps UP 4 times and DOWN 4 times, one tap every
@@ -66,7 +69,7 @@ def enter_until(pred, what):
 
 
 def get_to_value():
-    if not seen(lambda s: s.message is M.IDLE, 3):
+    if not seen(lambda s: s.message is M.IDLE, 8):
         log(f"ABORT: not at IdLE (showing {vision.read().raw_text!r})")
         return False
     if not enter_until(lambda s: s.message in MODES, "the mode menu"):
@@ -98,15 +101,23 @@ def value_until(deadline):
     return last
 
 
-WAITS = (0.5, 1.0, 2.0, 4.0, 8.0)
+def arg(name, default):
+    if name in sys.argv:
+        return sys.argv[sys.argv.index(name) + 1]
+    return default
+
+
+WAITS = tuple(float(w) for w in arg("--waits", "0.5,1,2,4,8").split(","))
+HOLD_S = float(arg("--hold", "5"))
+AFTER_GAP_S = float(arg("--gap", "1.5"))
 
 
 def after_hold(results):
     value = value_until(time.monotonic() + 1.5)
     for wait in WAITS:
         for key in ("UP", "DOWN"):
-            Bridge.call("press_hold", KEYS[key], 5000, timeout=10)
-            time.sleep(5.2)
+            Bridge.call("press_hold", KEYS[key], int(HOLD_S * 1000) + 500, timeout=10)
+            time.sleep(HOLD_S)
             Bridge.call("press_release", timeout=10)
             value = value_until(time.monotonic() + max(wait, 1.0))
             time.sleep(max(0.0, wait - 1.0))
@@ -114,12 +125,36 @@ def after_hold(results):
             for _ in range(3):
                 t = time.monotonic()
                 press(key)
-                after = value_until(t + 1.5)
+                after = value_until(t + AFTER_GAP_S)
                 steps.append(None if after is None or value is None else abs(after - value))
                 value = after
             results[(wait, key)] = steps
-            log(f"{wait} s after a 5 s {key} hold: steps per tap {steps}")
-            time.sleep(5)
+            log(f"{wait} s after a {HOLD_S:g} s {key} hold, taps {AFTER_GAP_S:g} s apart: steps per tap {steps}")
+            time.sleep(8)
+
+
+def sweep():
+    """Hold DOWN 9 s (222 -> about 160), rest, then tap UP 20 times 1.5 s
+    apart, logging every distinct text read after each tap: checks the
+    decoder on the digits 0-9 in the last place."""
+    Bridge.call("press_hold", KEYS["DOWN"], 9500, timeout=10)
+    time.sleep(9)
+    Bridge.call("press_release", timeout=10)
+    time.sleep(3)
+    value = value_until(time.monotonic() + 1.5)
+    log(f"swept down to {value}")
+    for _ in range(20):
+        t = time.monotonic()
+        press("UP")
+        texts = []
+        while time.monotonic() < t + 1.5:
+            s = vision.read()
+            if is_value(s) and (not texts or texts[-1] != s.raw_text):
+                texts.append(s.raw_text)
+        after = value_until(time.monotonic() + 0.5)
+        d = "?" if after is None or value is None else f"{after - value:+d}"
+        log(f"tap UP: {value} -> {after} ({d}) read {texts}")
+        value = after
 
 
 def main():
@@ -130,6 +165,9 @@ def main():
         time.sleep(5)
         value = value_until(time.monotonic() + 1.5)
         log(f"editing a rate, now {value}")
+        if "--sweep" in sys.argv:
+            sweep()
+            return 0
         if "--after-hold" in sys.argv:
             after_hold(results)
             return 0
