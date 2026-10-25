@@ -344,7 +344,7 @@ def _curve_steps(curve, seconds):
 def _editing(monkeypatch, value, scale=1, miss=()):
     import kiln.sequencer as seq
 
-    monkeypatch.setattr(seq, "SCROLL_REST_MAX_S", 0.0)
+    monkeypatch.setattr(seq, "TAP_GAP_S", 0.0)
     monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
     fake = _ValueEditor(value, scale, miss)
     return Sequencer(bridge=fake, vision=fake), fake

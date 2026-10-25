@@ -14,6 +14,7 @@ into ``bridge``/``vision`` directly.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -59,18 +60,22 @@ MENU_PRESS_ATTEMPTS = 3
 # land short and are finished with taps. (seconds held, steps moved):
 SCROLL_CURVE = ((2.0, 0), (3.0, 3), (5.0, 19), (7.0, 41), (8.0, 55), (12.0, 121), (20.0, 659))
 SCROLL_HOLD_MAX_S = 20.0  # at duty 80 a 20 s hold costs ~2.1 of the 3.0 heat budget
-SCROLL_REST_MAX_S = 6.0  # rest after a hold, up to this long, for the coil
 TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
+TAP_GAP_S = 0.25  # between taps in a burst
+SCROLL_AIM = 0.92  # size holds for this fraction of the change: land short, finish with taps
 
 
 def scroll_hold_for(steps: float) -> float:
-    """How long to hold UP/DOWN to scroll about ``steps`` (capped)."""
+    """How long to hold UP/DOWN to scroll about ``steps`` (capped). Between
+    measured points the steps grow geometrically (the controller keeps
+    accelerating), so interpolate on log(steps): a straight line overstated
+    the steps for a hold and every hold landed well short."""
 
     if steps <= SCROLL_CURVE[1][1]:
         return SCROLL_CURVE[1][0]
-    for (t0, n0), (t1, n1) in zip(SCROLL_CURVE, SCROLL_CURVE[1:]):
+    for (t0, n0), (t1, n1) in zip(SCROLL_CURVE[1:], SCROLL_CURVE[2:]):
         if steps <= n1:
-            return t0 + (t1 - t0) * (steps - n0) / (n1 - n0)
+            return t0 + (t1 - t0) * math.log(steps / n0) / math.log(n1 / n0)
     return SCROLL_HOLD_MAX_S
 
 
@@ -662,12 +667,13 @@ class Sequencer:
             raise SequenceError("no value on the display")
         return round(state.numeric_value * scale)
 
-    def _set_value(self, target: int, scale: int = 1, max_steps: int = 80) -> None:
+    def _set_value(self, target: int, scale: int = 1, max_steps: int = 40) -> None:
         """Bring the value being edited to ``target``. Big changes use a held
-        UP/DOWN sized to land a little short (the controller repeats after
-        ~2 s, accelerating to ~17 steps/s), with a rest after each for the
-        coil; the last few steps are single taps, each checked on the
-        display. Overshoot is corrected the same way."""
+        UP/DOWN sized from SCROLL_CURVE to land a little short (the
+        controller waits ~2 s, then scrolls faster and faster); the last few
+        steps are a quick burst of taps, then one reading, repeated if any
+        tap was missed. Overshoot is corrected the same way. The heat budget
+        (bridge.py) adds any cooling pause a coil needs."""
 
         current = self._value(scale)
         for _ in range(max_steps):
@@ -677,24 +683,27 @@ class Sequencer:
                 return
             key = Key.UP if delta > 0 else Key.DOWN
             if abs(delta) > TAP_LIMIT:
-                hold_s = scroll_hold_for(abs(delta) * 0.85 - 2)
+                hold_s = scroll_hold_for(abs(delta) * SCROLL_AIM)
                 self.bridge.press(key, int(hold_s * 1000))
-                time.sleep(min(hold_s, SCROLL_REST_MAX_S))
-                current = self._value(scale)
-                continue
-            for _attempt in range(MENU_PRESS_ATTEMPTS):
-                self._press(key)
-                state = self.vision.wait_for(
-                    lambda s: s.message is None
-                    and s.numeric_value is not None
-                    and round(s.numeric_value * scale) != current,
-                    MENU_CHANGE_TIMEOUT_S,
+                before, current = current, self._value(scale)
+                log.info(
+                    "held %s %.1f s: %d -> %d (target %d)", key.name, hold_s, before, current, target
                 )
-                if state is not None:
-                    current = round(state.numeric_value * scale)
-                    break
-            else:
-                raise SequenceError(f"{key.name} didn't change the value {current}")
+                continue
+            # A burst of taps without checking each one (the display only
+            # shows the value every other half second), then one reading.
+            for _tap in range(abs(delta)):
+                self._press(key)
+                time.sleep(TAP_GAP_S)
+            before = current
+            state = self.vision.wait_for(
+                lambda s: s.message is None and s.numeric_value is not None, MENU_CHANGE_TIMEOUT_S
+            )
+            if state is None:
+                raise SequenceError("no value on the display after tapping")
+            current = round(state.numeric_value * scale)
+            if current == before:
+                raise SequenceError(f"{key.name} taps didn't change the value {current}")
         raise SequenceError(f"couldn't set the value to {target} (stuck at {current})")
 
     def _next_field(self, current: DisplayMessage, current_segment: Optional[int], expect) -> ControllerState:
