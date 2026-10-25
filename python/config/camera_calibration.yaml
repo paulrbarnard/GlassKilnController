@@ -16,11 +16,11 @@
 # reads as the 7-segment pattern for "1".
 
 # roi refitted on 2026-10-22 after each mount change (best fit to frames
-# of "LoAd.", then "Pro ." on the revised solenoid mount); boxes and
-# points unchanged.
+# of "LoAd.", then "Pro ." on the revised solenoid mount, then "IdLE." on
+# the 4:1 lever mount, 2026-10-25); boxes and points unchanged.
 roi:
-  x: 532
-  y: 543
+  x: 534
+  y: 551
   w: 660
   h: 220
 
