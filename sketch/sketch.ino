@@ -68,8 +68,8 @@ const int DEFAULT_PRESS_MS = 200;  // a short, deliberate tap
 // The Python side waits for coils to cool before pressing (kiln/bridge.py,
 // same model, ceiling 3.0); this is the safety net behind it, so a press
 // that would take a coil past HEAT_LIMIT is refused even if Python is wrong.
-const float HEAT_DRAIN_PER_S = 0.05f;
-const float HEAT_LIMIT = 4.5f;
+const float HEAT_DRAIN_PER_S = 0.08f;
+const float HEAT_LIMIT = 9.0f;  // well above the app's 6.0 (see bridge.py HeatBudget)
 float heat[KEY_COUNT] = {0, 0, 0};
 unsigned long heat_ms[KEY_COUNT] = {0, 0, 0};
 

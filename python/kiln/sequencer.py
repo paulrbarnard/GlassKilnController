@@ -51,10 +51,13 @@ MENU_CHANGE_TIMEOUT_S = 3.0
 MENU_PRESS_ATTEMPTS = 3
 
 
-# Value entry on the kiln (2026-10-22/23, UP held at duty 220): the GM LT
-# waits ~2 s before repeating, then speeds up, levelling off around 17
-# steps/s. (seconds held, steps moved):
-SCROLL_CURVE = ((2.0, 0), (3.0, 3), (5.0, 19), (7.0, 41), (8.0, 55), (12.0, 121), (20.0, 257))
+# Value entry on the kiln (UP held; up to 12 s measured 2026-10-22/23, the
+# 20 s point on the lever mount 2026-10-25): the GM LT waits ~2 s before
+# repeating, then keeps speeding up (~17 steps/s at 12 s, ~67 steps/s
+# averaged over 12-20 s). Linear interpolation between points slightly
+# overestimates the steps for a given hold on this convex curve, so holds
+# land short and are finished with taps. (seconds held, steps moved):
+SCROLL_CURVE = ((2.0, 0), (3.0, 3), (5.0, 19), (7.0, 41), (8.0, 55), (12.0, 121), (20.0, 659))
 SCROLL_HOLD_MAX_S = 20.0  # at duty 80 a 20 s hold costs ~2.1 of the 3.0 heat budget
 SCROLL_REST_MAX_S = 6.0  # rest after a hold, up to this long, for the coil
 TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled

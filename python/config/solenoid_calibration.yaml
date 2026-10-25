@@ -56,24 +56,28 @@
 # UP 4/4, DOWN 4/4); ENTER's 5 s exit held at 60 (twice); UP and DOWN
 # scrolled +41/-41 in 7 s at 60 (40 gave +-1). Solenoids stayed cold. All
 # three long holds are 80 (~10% power while held).
+# Taps on the lever mount: hold 120 after the 100 ms kick registered every
+# tap (240 was far more than needed); hold 60 missed 1 in 4 DOWN taps, and
+# a 60 ms kick missed 2 in 16, so kick 100 / hold 120 (~0.12 full-power
+# seconds a tap, was ~0.19).
 #
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
 
 enter:
   kick_ms: 100
-  hold_duty: 240
+  hold_duty: 120
   settle_ms: 200
   long_hold_duty: 80
 
 up:
   kick_ms: 100
-  hold_duty: 240
+  hold_duty: 120
   settle_ms: 200
   long_hold_duty: 80
 
 down:
   kick_ms: 100
-  hold_duty: 240
+  hold_duty: 120
   settle_ms: 200
   long_hold_duty: 80

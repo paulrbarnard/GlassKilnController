@@ -73,8 +73,13 @@ class HeatBudget:
     fits under ``limit``. The sketch enforces the same model with a higher
     ceiling as a safety net (sketch.ino "Heat budget")."""
 
-    DRAIN_PER_S = 0.05
-    LIMIT = 3.0
+    # Rated 5% duty (0.05/s, 3.0 a minute) for the original small solenoids.
+    # The 4:1 lever mount's bigger solenoids barely warmed through a whole
+    # 4-segment program write under that budget (2026-10-25), so it allows
+    # them a bigger burst and faster cooling; the sketch keeps a higher hard
+    # limit behind it.
+    DRAIN_PER_S = 0.08
+    LIMIT = 6.0
 
     def __init__(self, clock: Callable[[], float] = time.monotonic, limit: float = LIMIT):
         self._clock = clock

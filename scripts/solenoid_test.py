@@ -153,7 +153,7 @@ def get_to_value():
     return True
 
 
-def stage_scroll(key, duties, exit_duty):
+def stage_scroll(key, duties, exit_duty, hold_ms=7000):
     if not get_to_value():
         log("ABORT: couldn't get into a value to scroll")
         return
@@ -163,7 +163,7 @@ def stage_scroll(key, duties, exit_duty):
         for duty in duties:
             long_hold(key, duty)
             before = value()
-            press(key, 7000)
+            press(key, hold_ms)
             time.sleep(0.8)
             after = value()
             change = None if before is None or after is None else after - before
@@ -185,6 +185,7 @@ def main():
     parser.add_argument("stage", choices=("taps", "enter", "scroll"))
     parser.add_argument("--key", choices=("UP", "DOWN"), default="UP")
     parser.add_argument("--duties", default="40,60,80,100")
+    parser.add_argument("--hold-ms", type=int, default=7000, help="scroll hold length (default 7 s)")
     args = parser.parse_args()
     duties = [int(d) for d in args.duties.split(",")]
     saved = saved_long_holds()
@@ -197,7 +198,7 @@ def main():
         elif args.stage == "enter":
             stage_enter(duties)
         else:
-            stage_scroll(args.key, duties, saved["ENTER"])
+            stage_scroll(args.key, duties, saved["ENTER"], args.hold_ms)
     finally:
         for key, duty in saved.items():
             long_hold(key, duty)

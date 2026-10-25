@@ -29,16 +29,18 @@ def test_waits_for_the_coil_to_cool():
     clock = Clock()
     budget = HeatBudget(clock=clock)
     cost = HeatBudget.cost(ENTER, 5000)  # ~0.66
-    for _ in range(4):
+    fits = int(budget.limit // cost)
+    for _ in range(fits):
         assert budget.wait_s(Key.ENTER, cost) == 0
         budget.add(Key.ENTER, cost)
-    # 4 x 0.66 = 2.64; another would reach 3.3 > 3.0: wait ~6 s
-    assert budget.wait_s(Key.ENTER, cost) == pytest.approx((4 * cost + cost - 3.0) / 0.05)
-    clock.t += 60  # a minute later it has drained 3.0
+    # One more would go over the limit: wait for that much to drain.
+    over = (fits + 1) * cost - budget.limit
+    assert budget.wait_s(Key.ENTER, cost) == pytest.approx(over / HeatBudget.DRAIN_PER_S)
+    clock.t += budget.limit / HeatBudget.DRAIN_PER_S  # long enough to drain it all
     assert budget.wait_s(Key.ENTER, cost) == 0
     assert budget.wait_s(Key.UP, cost) == 0  # each coil has its own budget
 
 
 def test_a_press_that_can_never_fit_is_refused():
     with pytest.raises(BridgeError, match="can never fit"):
-        HeatBudget().wait_s(Key.UP, HeatBudget.cost(DriveSettings(100, 255, 200, 255), 5000))
+        HeatBudget().wait_s(Key.UP, HeatBudget.cost(DriveSettings(100, 255, 200, 255), 7000))
