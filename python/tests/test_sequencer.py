@@ -300,25 +300,42 @@ def test_firing_is_refused_when_the_controller_unit_differs():
 
 
 class _ValueEditor:
-    """One PRO value being edited: a tap moves it by 1, a hold scrolls by
-    the curve measured on the kiln; ``miss`` lists tap numbers to ignore."""
+    """One PRO value being edited: a tap moves it by 1; a held press scrolls
+    it along the curve recorded on the kiln, on a simulated clock (each
+    reading advances it by one camera frame); ``miss`` lists tap numbers
+    to ignore. Release takes effect RELEASE_LAG_S later, as on the kiln."""
+
+    FRAME_S = 1 / 30
 
     def __init__(self, value, scale=1, miss=()):
         self.value, self.scale, self.miss, self.presses, self.taps = value, scale, set(miss), [], 0
+        self.now, self.hold = 0.0, None
+
+    def clock(self):
+        return self.now
 
     def press(self, key, hold_ms=SHORT_PRESS_MS):
+        self.presses.append((key, hold_ms))
+        self.taps += 1
+        if self.taps not in self.miss:
+            self.value += 1 if key is Key.UP else -1
+
+    def hold_start(self, key, max_ms):
+        self.presses.append((key, -max_ms))
+        self.hold = (key, self.now, self.value)
+
+    def _held_value(self, at):
         import kiln.sequencer as seq
 
-        self.presses.append((key, hold_ms))
+        key, started, base = self.hold
         sign = 1 if key is Key.UP else -1
-        if hold_ms <= 1000:
-            self.taps += 1
-            if self.taps not in self.miss:
-                self.value += sign
-        else:
-            # The real curve, but a little faster or slower than measured.
-            steps = round(_curve_steps(seq.SCROLL_CURVE, hold_ms / 1000) * 1.1)
-            self.value += sign * steps
+        return base + sign * round(_curve_steps(seq.SCROLL_CURVE, at - started))
+
+    def hold_release(self):
+        import kiln.sequencer as seq
+
+        self.value = self._held_value(self.now + seq.RELEASE_LAG_S)
+        self.hold = None
 
     def ping(self):
         return True
@@ -326,8 +343,13 @@ class _ValueEditor:
     def read(self):
         from kiln.vision import build_controller_state
 
-        shown = f"{self.value / self.scale:05.2f}." if self.scale == 100 else f"{self.value:04d}."
+        value = self._held_value(self.now) if self.hold else self.value
+        shown = f"{value / self.scale:05.2f}." if self.scale == 100 else f"{value:04d}."
         return build_controller_state(shown)
+
+    def read_fast(self):
+        self.now += self.FRAME_S
+        return self.read()
 
     def wait_for(self, predicate, timeout_s, poll_interval_s=0.0):
         state = self.read()
@@ -335,18 +357,22 @@ class _ValueEditor:
 
 
 def _curve_steps(curve, seconds):
+    if seconds <= curve[0][0]:
+        return 0
     for (t0, n0), (t1, n1) in zip(curve, curve[1:]):
         if seconds <= t1:
-            return n0 + (n1 - n0) * max(0.0, seconds - t0) / (t1 - t0)
-    return curve[-1][1] + 17 * (seconds - curve[-1][0])
+            return n0 + (n1 - n0) * (seconds - t0) / (t1 - t0)
+    return curve[-1][1] + 300 * (seconds - curve[-1][0])
 
 
 def _editing(monkeypatch, value, scale=1, miss=()):
     import kiln.sequencer as seq
 
-    monkeypatch.setattr(seq, "TAP_GAP_S", 0.0)
-    monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
     fake = _ValueEditor(value, scale, miss)
+    monkeypatch.setattr(seq, "TAP_GAP_S", 0.0)
+    monkeypatch.setattr(seq, "SCROLL_SETTLE_S", 0.0)
+    monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
+    monkeypatch.setattr(seq.time, "monotonic", fake.clock)
     return Sequencer(bridge=fake, vision=fake), fake
 
 
@@ -354,12 +380,17 @@ def test_set_value_scrolls_big_changes_then_taps(monkeypatch):
     sequencer, fake = _editing(monkeypatch, 60)
     sequencer._set_value(650)  # e.g. 60 -> 650 °C
     assert fake.value == 650
-    holds = [p for p in fake.presses if p[1] > 1000]
-    taps = [p for p in fake.presses if p[1] <= 1000]
-    import kiln.sequencer as seq
+    holds = [p for p in fake.presses if p[1] < 0]
+    taps = [p for p in fake.presses if p[1] > 0]
+    assert len(holds) <= 2  # watched holds cover nearly all of it
+    assert len(taps) <= 4  # and land within a few steps
 
-    assert holds and all(h[1] <= seq.SCROLL_HOLD_MAX_S * 1000 for h in holds)
-    assert len(taps) <= 30  # most of the distance was scrolled
+
+def test_set_value_watched_hold_lands_close_on_a_long_scroll(monkeypatch):
+    sequencer, fake = _editing(monkeypatch, 900)
+    sequencer._set_value(222)  # -678, the longest scroll recorded on the kiln
+    assert fake.value == 222
+    assert len([p for p in fake.presses if p[1] < 0]) <= 2
 
 
 def test_set_value_comes_back_down_and_survives_missed_taps(monkeypatch):

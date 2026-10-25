@@ -57,7 +57,7 @@ int long_hold_duty[KEY_COUNT] = {255, 255, 255};  // 255 = no reduction
 // Hard cap on a single press, so a bug can't leave a coil energised. The
 // longest presses are held UP/DOWN to scroll a value: the GM LT waits ~2 s
 // before repeating, then speeds up the longer the button is held.
-const int MAX_PRESS_MS = 20000;
+const int MAX_PRESS_MS = 30000;
 const int DEFAULT_PRESS_MS = 200;  // a short, deliberate tap
 
 // ---- Heat budget -------------------------------------------------------
@@ -123,7 +123,7 @@ static void all_off() {
 // Only one solenoid is ever energised: everything is switched off before
 // a press starts and again when it ends.
 bool press_button(int which, int hold_ms) {
-  if (!key_is_valid(which) || hold_ms > MAX_PRESS_MS) {
+  if (!key_is_valid(which) || hold_ms > MAX_PRESS_MS || held_key >= 0) {
     return false;
   }
   if (hold_ms <= 0) {
@@ -154,6 +154,84 @@ bool press_button(int which, int hold_ms) {
   }
   all_off();
   return true;
+}
+
+// ---- Held presses (press_hold / press_release) -------------------------
+// For scrolling a value to a target: Python starts a hold, watches the
+// display, and releases when the value is about to reach the target. The
+// GM LT accelerates the longer a button is held (to hundreds of steps a
+// second), so a fixed-length press can't land precisely.
+//
+// The Bridge calls run on their own thread and loop() on another, so the
+// shared state is kept race-safe without locks: a release clears held_key
+// before switching the coil off, and loop() re-checks held_key after any
+// change it makes (switching the coil off again if a release slipped in).
+// loop() also ends the hold at max_ms, so a lost connection can't leave a
+// coil on. Heat: the full max_ms must fit the budget to start; the time
+// actually held is charged at the end.
+volatile int held_key = -1;
+volatile unsigned long held_start = 0;
+volatile int held_max_ms = 0;
+volatile bool held_settled = false;
+
+static void end_hold(int which) {
+  unsigned long elapsed = millis() - held_start;
+  int ms = elapsed > (unsigned long)held_max_ms ? held_max_ms : (int)elapsed;
+  all_off();
+  drain_heat(which);
+  heat[which] += press_cost(which, ms);
+}
+
+bool press_hold(int which, int max_ms) {
+  if (!key_is_valid(which) || max_ms <= 0 || max_ms > MAX_PRESS_MS || held_key >= 0) {
+    return false;
+  }
+  drain_heat(which);
+  if (heat[which] + press_cost(which, max_ms) > HEAT_LIMIT) {
+    return false;  // the whole hold might not fit the heat budget
+  }
+  const uint8_t pin = SOLENOID_PIN[which];
+  all_off();
+  analogWrite(pin, 255);
+  delay(kick_ms[which]);
+  analogWrite(pin, hold_duty[which]);
+  held_settled = false;
+  held_start = millis() - kick_ms[which];
+  held_max_ms = max_ms;
+  held_key = which;
+  return true;
+}
+
+// Returns false if nothing was being held (already released, or loop()
+// ended it at max_ms).
+bool press_release() {
+  int which = held_key;
+  if (which < 0) {
+    return false;
+  }
+  held_key = -1;
+  end_hold(which);
+  return true;
+}
+
+static void service_hold() {
+  int which = held_key;
+  if (which < 0) {
+    return;
+  }
+  unsigned long elapsed = millis() - held_start;
+  if (elapsed >= (unsigned long)held_max_ms) {
+    held_key = -1;
+    end_hold(which);
+    return;
+  }
+  if (!held_settled && (int)elapsed >= settle_ms[which] && long_hold_duty[which] < hold_duty[which]) {
+    analogWrite(SOLENOID_PIN[which], long_hold_duty[which]);
+    held_settled = true;
+    if (held_key != which) {
+      all_off();  // released while we were changing the duty
+    }
+  }
 }
 
 // Runtime tuning hook so kick/hold can be adjusted from the Python side
@@ -202,10 +280,14 @@ void setup() {
   Bridge.provide_safe("press_button", press_button);
   Bridge.provide_safe("configure_solenoid", configure_solenoid);
   Bridge.provide_safe("configure_long_hold", configure_long_hold);
+  Bridge.provide_safe("press_hold", press_hold);
+  Bridge.provide_safe("press_release", press_release);
   Bridge.provide_safe("ping", ping);
 }
 
 void loop() {
-  // All work happens in the Bridge-dispatched functions above; nothing to
-  // poll here.
+  // Bridge-dispatched functions do the work; loop() only times held
+  // presses (switch to the long-hold duty, and the max_ms safety stop).
+  service_hold();
+  delay(2);
 }

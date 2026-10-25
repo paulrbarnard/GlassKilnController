@@ -52,6 +52,18 @@ class KilnBridge(abc.ABC):
     def ping(self) -> bool:
         """Return True if the sketch side is reachable."""
 
+    def hold_start(self, key: Key, max_ms: int) -> None:
+        """Start holding ``key`` until hold_release() (or ``max_ms``, when
+        the sketch lets go by itself). For scrolling a value to a target
+        while watching the display."""
+
+        raise NotImplementedError
+
+    def hold_release(self) -> None:
+        """Release a hold started with hold_start()."""
+
+        raise NotImplementedError
+
 
 @dataclass
 class DriveSettings:
@@ -159,6 +171,28 @@ class RealBridge(KilnBridge):
             )
         self.heat.add(key, cost)
 
+    def hold_start(self, key: Key, max_ms: int) -> None:
+        # The whole max_ms has to fit the heat budget; the time actually held
+        # is charged on release.
+        wait = self.heat.wait_s(key, HeatBudget.cost(self.drive[key], max_ms))
+        if wait > 0:
+            log.info("letting the %s solenoid cool for %.0f s (heat budget)", key.name, wait)
+            time.sleep(wait)
+        if not self._bridge.call("press_hold", key.value, max_ms):
+            raise BridgeError(f"press_hold({key!r}, {max_ms}) refused by the sketch")
+        self._held = (key, time.monotonic(), max_ms)
+
+    def hold_release(self) -> None:
+        held = getattr(self, "_held", None)
+        self._held = None
+        try:
+            self._bridge.call("press_release")
+        finally:
+            if held:
+                key, started, max_ms = held
+                ms = min(max_ms, int((time.monotonic() - started) * 1000))
+                self.heat.add(key, HeatBudget.cost(self.drive[key], ms))
+
     def configure(self, key: Key, kick_ms: int, hold_duty: int) -> None:
         ok = self._bridge.call("configure_solenoid", key.value, kick_ms, hold_duty)
         if ok:
@@ -195,6 +229,12 @@ class MockBridge(KilnBridge):
         self.presses.append((key, hold_ms))
         if self.press_delay_s:
             time.sleep(self.press_delay_s)
+
+    def hold_start(self, key: Key, max_ms: int) -> None:
+        self.presses.append((key, -max_ms))  # negative: a held press, up to max_ms
+
+    def hold_release(self) -> None:
+        pass
 
     def ping(self) -> bool:
         return True

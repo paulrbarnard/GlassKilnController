@@ -52,17 +52,27 @@ MENU_CHANGE_TIMEOUT_S = 3.0
 MENU_PRESS_ATTEMPTS = 3
 
 
-# Value entry on the kiln (UP held; up to 12 s measured 2026-10-22/23, the
-# 20 s point on the lever mount 2026-10-25): the GM LT waits ~2 s before
-# repeating, then keeps speeding up (~17 steps/s at 12 s, ~67 steps/s
-# averaged over 12-20 s). Linear interpolation between points slightly
-# overestimates the steps for a given hold on this convex curve, so holds
-# land short and are finished with taps. (seconds held, steps moved):
-SCROLL_CURVE = ((2.0, 0), (3.0, 3), (5.0, 19), (7.0, 41), (8.0, 55), (12.0, 121), (20.0, 659))
-SCROLL_HOLD_MAX_S = 20.0  # at duty 80 a 20 s hold costs ~2.1 of the 3.0 heat budget
+# How a held UP/DOWN scrolls a value (recorded frame by frame on the lever
+# mount, 2026-10-25, scripts/scroll_profile.py; DOWN matched UP): nothing
+# for ~2 s, then faster and faster, to hundreds of steps a second by 20 s.
+# Deterministic, but too fast at the end for a timed press to land on a
+# value, so holds watch the display and release on the value
+# (_hold_towards); this curve only sets each hold's time limit.
+# (seconds held, steps moved):
+SCROLL_CURVE = (
+    (2.0, 0), (3.0, 2), (4.0, 4), (5.0, 13), (6.0, 24), (8.0, 48), (10.0, 76),
+    (12.0, 111), (14.0, 154), (16.0, 213), (18.0, 304), (20.0, 524),
+)
+SCROLL_HOLD_MAX_S = 30.0  # at duty 80 a 30 s hold costs ~3.0 of the 6.0 heat budget
 TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
 TAP_GAP_S = 0.25  # between taps in a burst
-SCROLL_AIM = 0.92  # size holds for this fraction of the change: land short, finish with taps
+# Closed-loop scroll holds (_hold_towards): how far back to measure the
+# scroll speed, how much further the value runs after release is asked for
+# (camera, Bridge and button), and how long to let the display settle after.
+SCROLL_RATE_WINDOW_S = 0.3
+RELEASE_LAG_S = 0.25
+RELEASE_LEAD = 1.5
+SCROLL_SETTLE_S = 0.6
 
 
 def scroll_hold_for(steps: float) -> float:
@@ -683,11 +693,13 @@ class Sequencer:
                 return
             key = Key.UP if delta > 0 else Key.DOWN
             if abs(delta) > TAP_LIMIT:
-                hold_s = scroll_hold_for(abs(delta) * SCROLL_AIM)
-                self.bridge.press(key, int(hold_s * 1000))
-                before, current = current, self._value(scale)
+                before = current
+                released_at = self._hold_towards(key, target, current, scale)
+                time.sleep(SCROLL_SETTLE_S)
+                current = self._value(scale)
                 log.info(
-                    "held %s %.1f s: %d -> %d (target %d)", key.name, hold_s, before, current, target
+                    "held %s: %d -> %d (released at %s, target %d)",
+                    key.name, before, current, released_at, target,
                 )
                 continue
             # A burst of taps without checking each one (the display only
@@ -705,6 +717,46 @@ class Sequencer:
             if current == before:
                 raise SequenceError(f"{key.name} taps didn't change the value {current}")
         raise SequenceError(f"couldn't set the value to {target} (stuck at {current})")
+
+    def _hold_towards(self, key: Key, target: int, current: int, scale: int) -> Optional[int]:
+        """Hold ``key`` while watching the value, and release when it's about
+        to reach ``target``: the GM LT accelerates the longer a button is
+        held (to hundreds of steps a second), so this stops on the value, not
+        on a time. The speed is estimated from the last SCROLL_RATE_WINDOW_S
+        of readings and the release allows for RELEASE_LAG_S of further
+        movement. Readings that go the wrong way or jump implausibly far (a
+        frame caught mid-change) are ignored. Returns the value at release."""
+
+        sign = 1 if key is Key.UP else -1
+        max_s = min(SCROLL_HOLD_MAX_S, scroll_hold_for(abs(target - current)) + 3.0)
+        self.bridge.hold_start(key, int(max_s * 1000))
+        started = time.monotonic()
+        last = current
+        history: list[tuple[float, int]] = [(started, current)]
+        try:
+            while time.monotonic() - started < max_s:
+                self._check_abort()
+                state = self.vision.read_fast()
+                now = time.monotonic()
+                if state.message is not None or state.numeric_value is None:
+                    continue
+                value = round(state.numeric_value * scale)
+                moved = (value - last) * sign
+                if moved < 0 or moved > max(60, abs(target - current)):
+                    continue  # mid-change frame or misread
+                last = value
+                history.append((now, value))
+                recent = [(t, v) for t, v in history if now - t <= SCROLL_RATE_WINDOW_S]
+                rate = 0.0
+                if len(recent) >= 2 and recent[-1][0] > recent[0][0]:
+                    rate = abs(recent[-1][1] - recent[0][1]) / (recent[-1][0] - recent[0][0])
+                # The window's average speed trails the current one on an
+                # accelerating scroll, hence the lead factor on the lag.
+                if (target - (last + sign * rate * RELEASE_LAG_S * RELEASE_LEAD)) * sign <= 0:
+                    return last
+            return last
+        finally:
+            self.bridge.hold_release()
 
     def _next_field(self, current: DisplayMessage, current_segment: Optional[int], expect) -> ControllerState:
         """ENTER saves the value showing and moves to the next field. Press

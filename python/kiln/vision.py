@@ -298,6 +298,13 @@ class KilnVision(abc.ABC):
     def read(self) -> ControllerState:
         """Capture a frame and return the current best reading."""
 
+    def read_fast(self) -> ControllerState:
+        """One frame, no waiting for frames to agree: for following a value
+        that's changing quickly (scrolling), where two frames rarely match.
+        May occasionally catch a digit mid-change; callers filter."""
+
+        return self.read()
+
     def wait_for(
         self,
         predicate: Callable[[ControllerState], bool],
@@ -422,6 +429,12 @@ class RealVision(KilnVision):
             previous = text
         log.debug("RealVision: no stable reading in %d frames", self.STABLE_TRIES)
         return build_controller_state("?")
+
+    def read_fast(self) -> ControllerState:
+        frame = self.read_frame()
+        if frame is None:
+            return build_controller_state("?")
+        return build_controller_state(read_frame_text(frame, self.calibration))
 
     def _release_locked(self) -> None:
         if self._capture is not None:
