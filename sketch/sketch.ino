@@ -100,6 +100,13 @@ static void drain_heat(int which) {
   heat_ms[which] = now;
 }
 
+// Held press state (see "Held presses" below); declared here because
+// press_button() refuses to run while a hold is active.
+volatile int held_key = -1;
+volatile unsigned long held_start = 0;
+volatile int held_max_ms = 0;
+volatile bool held_settled = false;
+
 static bool key_is_valid(int which) {
   return which >= 0 && which < KEY_COUNT;
 }
@@ -169,10 +176,6 @@ bool press_button(int which, int hold_ms) {
 // loop() also ends the hold at max_ms, so a lost connection can't leave a
 // coil on. Heat: the full max_ms must fit the budget to start; the time
 // actually held is charged at the end.
-volatile int held_key = -1;
-volatile unsigned long held_start = 0;
-volatile int held_max_ms = 0;
-volatile bool held_settled = false;
 
 static void end_hold(int which) {
   unsigned long elapsed = millis() - held_start;
