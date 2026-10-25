@@ -65,7 +65,12 @@ SCROLL_CURVE = (
 )
 SCROLL_HOLD_MAX_S = 30.0  # at duty 80 a 30 s hold costs ~3.0 of the 6.0 heat budget
 TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
-TAP_GAP_S = 0.25  # between taps in a burst
+TAP_GAP_S = 0.6  # between taps in a burst (tested clean on the kiln at 0.6-3 s)
+# After a held UP/DOWN the GM LT keeps its fast scroll going for a second or
+# two: taps within ~1 s of the release counted 2-3 steps each, and kept it
+# going; from 2 s on every tap was one step (scripts/tap_test.py
+# --after-hold, 2026-10-25). So taps wait this long after a hold.
+POST_HOLD_REST_S = 3.0
 # Closed-loop scroll holds (_hold_towards): how far back to measure the
 # scroll speed, how much further the value runs after release is asked for
 # (camera, Bridge and button).
@@ -718,9 +723,10 @@ class Sequencer:
 
     def _set_value(self, target: int, scale: int = 1, max_steps: int = VALUE_ATTEMPTS) -> None:
         """Bring the value being edited to ``target``. Big changes use a held
-        UP/DOWN sized from SCROLL_CURVE to land a little short (the
-        controller waits ~2 s, then scrolls faster and faster); the last few
-        steps are a quick burst of taps, then a settled reading. The GM LT
+        UP/DOWN, watched and released just short (the controller waits ~2 s,
+        then scrolls faster and faster); after POST_HOLD_REST_S, so the fast
+        scroll has worn off, the last few steps are a burst of taps, then a
+        settled reading. The GM LT
         itself sometimes misses a press or counts one twice (seen when
         programming it by hand too), so a burst that lands off target, or
         doesn't move the value at all, is simply corrected from the new
@@ -737,7 +743,9 @@ class Sequencer:
             if abs(delta) > TAP_LIMIT:
                 before = current
                 released_at = self._hold_towards(key, target, current, scale)
+                released = time.monotonic()
                 current = self._settled_value(scale)
+                time.sleep(max(0.0, POST_HOLD_REST_S - (time.monotonic() - released)))
                 log.info(
                     "held %s: %d -> %d (released at %s, target %d)",
                     key.name, before, current, released_at, target,

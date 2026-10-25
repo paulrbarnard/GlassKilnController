@@ -1,16 +1,19 @@
-"""Measure how reliably taps step a value: missed taps and double counts.
+"""Measure how far one tap moves a value, against the gap since the last tap.
 
 Runs inside the app container on the board:
 
-    python /app/scripts/tap_test.py            (single taps, then bursts)
+    python /app/scripts/tap_test.py            (gets into a value first)
     python /app/scripts/tap_test.py --here     (already editing a value)
+    python /app/scripts/tap_test.py --after-hold   (taps after a held press)
 
-Gets into a value the same way as scroll_profile.py (Pro > slot > SEG >
-segment 1 rate), then:
-  singles  6 UP and 6 DOWN taps, one at a time, reading the settled value
-           after each (expect +-1 each)
-  bursts   bursts of 5 UP / 5 DOWN taps at 0.25 s and 0.5 s gaps, reading
-           the settled value after each burst (expect +-5)
+Gets into a value (Pro > slot > SEG > segment 1 rate), rests 5 s, then for
+each gap (longest first) taps UP 4 times and DOWN 4 times, one tap every
+``gap`` seconds, reading the display between taps. The GM LT steps faster
+when taps come close together (seen on the kiln 2026-10-25: taps about 1 s
+apart moved 2-3 each), so this finds the gap at which every tap is one step.
+With --after-hold, instead: for each wait W, hold UP (or DOWN) for 5 s,
+wait W seconds, then tap the same key 3 times 1.5 s apart; on the kiln the
+first taps after a hold counted 2-3 steps each.
 Leaves the edit with a long ENTER (nothing is saved).
 """
 
@@ -18,76 +21,137 @@ import sys
 import time
 
 sys.path.insert(0, "/app/python")
-sys.path.insert(0, "/app/scripts")
 
 from arduino.app_utils import Bridge  # noqa: E402
 
-import scroll_profile as sp  # noqa: E402  (opens the camera)
 from kiln.protocol import DisplayMessage as M  # noqa: E402
+from kiln.vision import RealVision  # noqa: E402
 
-KEYS = sp.KEYS
-vision = sp.vision
-log = sp.log
+KEYS = {"ENTER": 0, "UP": 1, "DOWN": 2}
+MODES = (M.AUTO, M.PRO, M.LOAD, M.OPTIONS)
+GAPS = (3.0, 2.0, 1.5, 1.0, 0.6)
+
+vision = RealVision(config_path="/app/python/config/camera_calibration.yaml")
+vision.read()  # open the camera and let it settle
 
 
-def value_now():
-    s = sp.seen(lambda s: s.message is None and s.numeric_value is not None, 3)
-    return None if s is None else int(s.numeric_value)
+def log(msg):
+    print(time.strftime("%H:%M:%S"), msg, flush=True)
 
 
-def settled(timeout=5.0):
-    """Two readings 0.5 s apart that agree."""
-    end = time.monotonic() + timeout
-    last = None
+def seen(pred, secs):
+    end = time.monotonic() + secs
     while time.monotonic() < end:
-        v = value_now()
-        if v is not None and v == last:
-            return v
-        last = v
-        time.sleep(0.5)
+        s = vision.read()
+        if pred(s):
+            return s
+    return None
+
+
+def press(key, ms=200):
+    Bridge.call("press_button", KEYS[key], ms, timeout=max(10, ms // 1000 + 5))
+
+
+def is_value(s):
+    return s.message is None and s.numeric_value is not None
+
+
+def enter_until(pred, what):
+    for _ in range(3):
+        press("ENTER")
+        if seen(pred, 3):
+            return True
+    log(f"ABORT: ENTER didn't reach {what} (showing {vision.read().raw_text!r})")
+    return False
+
+
+def get_to_value():
+    if not seen(lambda s: s.message is M.IDLE, 3):
+        log(f"ABORT: not at IdLE (showing {vision.read().raw_text!r})")
+        return False
+    if not enter_until(lambda s: s.message in MODES, "the mode menu"):
+        return False
+    for _ in range(8):
+        if seen(lambda s: s.message is M.PRO, 1.5):
+            break
+        press("UP")
+        time.sleep(1.5)
+    else:
+        log("ABORT: couldn't find Pro")
+        return False
+    return (
+        enter_until(is_value, "the slot screen")
+        and enter_until(lambda s: s.message is M.SEGMENT_COUNT, "SEG")
+        and enter_until(lambda s: s.message is M.RATE_PROMPT and s.segment_number == 1, "rA 1")
+    )
+
+
+def value_until(deadline):
+    """The last value read before ``deadline``."""
+    last = None
+    while time.monotonic() < deadline or last is None:
+        s = vision.read()
+        if is_value(s):
+            last = int(s.numeric_value)
+        if time.monotonic() > deadline + 3:
+            break
     return last
 
 
-def tap(key):
-    Bridge.call("press_button", KEYS[key], 200, timeout=10)
+WAITS = (0.5, 1.0, 2.0, 4.0, 8.0)
+
+
+def after_hold(results):
+    value = value_until(time.monotonic() + 1.5)
+    for wait in WAITS:
+        for key in ("UP", "DOWN"):
+            Bridge.call("press_hold", KEYS[key], 5000, timeout=10)
+            time.sleep(5.2)
+            Bridge.call("press_release", timeout=10)
+            value = value_until(time.monotonic() + max(wait, 1.0))
+            time.sleep(max(0.0, wait - 1.0))
+            steps = []
+            for _ in range(3):
+                t = time.monotonic()
+                press(key)
+                after = value_until(t + 1.5)
+                steps.append(None if after is None or value is None else abs(after - value))
+                value = after
+            results[(wait, key)] = steps
+            log(f"{wait} s after a 5 s {key} hold: steps per tap {steps}")
+            time.sleep(5)
 
 
 def main():
-    if "--here" not in sys.argv and not sp.get_to_value():
-        log("ABORT: couldn't get into a value")
+    if "--here" not in sys.argv and not get_to_value():
         return 1
-    results = []
+    results = {}
     try:
-        start = settled()
-        log(f"editing a rate, now {start}")
-        for key, sign in (("UP", 1), ("DOWN", -1)):
-            for i in range(6):
-                before = settled()
-                tap(key)
-                after = settled()
-                d = None if before is None or after is None else after - before
-                results.append(("single", key, 1, d))
-                log(f"single {key} tap {i + 1}: {before} -> {after} ({d:+d})" if d is not None else f"single {key}: unreadable")
-        for gap in (0.25, 0.5):
-            for key, sign in (("UP", 1), ("DOWN", -1)):
-                for i in range(2):
-                    before = settled()
-                    for _ in range(5):
-                        tap(key)
-                        time.sleep(gap)
-                    after = settled()
-                    d = None if before is None or after is None else after - before
-                    results.append((f"burst {gap}s", key, 5, d))
-                    log(f"burst of 5 {key} at {gap} s gaps: {before} -> {after} ({d:+d})" if d is not None else "burst: unreadable")
+        time.sleep(5)
+        value = value_until(time.monotonic() + 1.5)
+        log(f"editing a rate, now {value}")
+        if "--after-hold" in sys.argv:
+            after_hold(results)
+            return 0
+        for gap in GAPS:
+            for key in ("UP", "DOWN"):
+                steps = []
+                for _ in range(4):
+                    t = time.monotonic()
+                    press(key)
+                    after = value_until(t + gap)
+                    steps.append(None if after is None or value is None else abs(after - value))
+                    value = after
+                results[(gap, key)] = steps
+                log(f"gap {gap} s, {key}: steps per tap {steps}")
+            time.sleep(5)  # rest between gaps
     finally:
-        Bridge.call("press_button", KEYS["ENTER"], 5000, timeout=12)
-        log("left the edit: " + ("back to IdLE" if sp.seen(lambda s: s.message in (M.STOPPED, M.IDLE), 4) else "did not exit"))
+        press("ENTER", 5000)
+        log("left the edit: " + ("back to IdLE" if seen(lambda s: s.message in (M.STOPPED, M.IDLE), 4) else "did not exit"))
         vision.close()
-    log("SUMMARY (expected vs counted):")
-    for kind, key, n, d in results:
-        flag = "" if d is not None and abs(d) == n else "   <-- " + ("unreadable" if d is None else ("MISSED" if abs(d) < n else "EXTRA"))
-        log(f"  {kind:12} {key:5} expected {n}, counted {'?' if d is None else abs(d)}{flag}")
-    return 0
+        log("SUMMARY: steps per tap (1 is right)")
+        for (gap, key), steps in results.items():
+            log(f"  {gap:>3} s {key:5} {steps}")
 
 
 if __name__ == "__main__":
