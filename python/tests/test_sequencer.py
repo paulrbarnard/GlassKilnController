@@ -356,7 +356,9 @@ def test_set_value_scrolls_big_changes_then_taps(monkeypatch):
     assert fake.value == 650
     holds = [p for p in fake.presses if p[1] > 1000]
     taps = [p for p in fake.presses if p[1] <= 1000]
-    assert holds and all(h[1] <= 12000 for h in holds)
+    import kiln.sequencer as seq
+
+    assert holds and all(h[1] <= seq.SCROLL_HOLD_MAX_S * 1000 for h in holds)
     assert len(taps) <= 30  # most of the distance was scrolled
 
 

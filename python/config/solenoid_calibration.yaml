@@ -50,6 +50,13 @@
 # and the one now on ENTER still exits at 80. UP is set to 140. DOWN
 # (burnt out) keeps its old value until it's replaced and tested.
 #
+# 2026-10-25: new mount with a 4:1 lever per button, slightly bigger
+# solenoids (still 5% duty at 12 V) and adjustable finger depth. Tested
+# with scripts/solenoid_test.py, 60 s rests: all taps registered (ENTER,
+# UP 4/4, DOWN 4/4); ENTER's 5 s exit held at 60 (twice); UP and DOWN
+# scrolled +41/-41 in 7 s at 60 (40 gave +-1). Solenoids stayed cold. All
+# three long holds are 80 (~10% power while held).
+#
 # Pushed to the sketch at startup via Bridge.call("configure_solenoid", ...)
 # (main.py) so the drive settings live in one place, not hardcoded twice.
 
@@ -63,10 +70,10 @@ up:
   kick_ms: 100
   hold_duty: 240
   settle_ms: 200
-  long_hold_duty: 140
+  long_hold_duty: 80
 
 down:
   kick_ms: 100
   hold_duty: 240
   settle_ms: 200
-  long_hold_duty: 220
+  long_hold_duty: 80
