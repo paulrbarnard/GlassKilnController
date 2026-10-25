@@ -73,6 +73,15 @@ SCROLL_RATE_WINDOW_S = 0.3
 RELEASE_LAG_S = 0.25
 RELEASE_LEAD = 1.5
 SETTLE_GAP_S = 0.4  # two readings this far apart must agree for a value to count as settled
+# Holds and tap bursts allowed to bring one value to its target (each
+# burst corrects whatever the last one missed or double counted).
+VALUE_ATTEMPTS = 12
+# A watched scroll ignores readings that jump further than
+# SLACK + FACTOR * speed * time since the last good reading (speed at least
+# MIN_RATE steps/s, so the first readings of a hold aren't all refused).
+SCROLL_JUMP_SLACK = 20
+SCROLL_JUMP_FACTOR = 3.0
+SCROLL_MIN_RATE = 50.0
 
 
 def scroll_hold_for(steps: float) -> float:
@@ -707,12 +716,15 @@ class Sequencer:
             raise SequenceError("no value on the display")
         return round(state.numeric_value * scale)
 
-    def _set_value(self, target: int, scale: int = 1, max_steps: int = 40) -> None:
+    def _set_value(self, target: int, scale: int = 1, max_steps: int = VALUE_ATTEMPTS) -> None:
         """Bring the value being edited to ``target``. Big changes use a held
         UP/DOWN sized from SCROLL_CURVE to land a little short (the
         controller waits ~2 s, then scrolls faster and faster); the last few
-        steps are a quick burst of taps, then one reading, repeated if any
-        tap was missed. Overshoot is corrected the same way. The heat budget
+        steps are a quick burst of taps, then a settled reading. The GM LT
+        itself sometimes misses a press or counts one twice (seen when
+        programming it by hand too), so a burst that lands off target, or
+        doesn't move the value at all, is simply corrected from the new
+        reading, up to ``max_steps`` holds and bursts in all. The heat budget
         (bridge.py) adds any cooling pause a coil needs."""
 
         current = self._value(scale)
@@ -746,8 +758,10 @@ class Sequencer:
                 MENU_CHANGE_TIMEOUT_S,
             )
             if moved is None:
-                raise SequenceError(f"{key.name} taps didn't change the value {before}")
+                log.info("tapped %s x%d: no change from %d (target %d)", key.name, abs(delta), before, target)
+                continue
             current = self._settled_value(scale)
+            log.info("tapped %s x%d: %d -> %d (target %d)", key.name, abs(delta), before, current, target)
         raise SequenceError(f"couldn't set the value to {target} (stuck at {current})")
 
     def _settled_value(self, scale: int, timeout_s: float = 4.0) -> int:
@@ -774,14 +788,16 @@ class Sequencer:
         held (to hundreds of steps a second), so this stops on the value, not
         on a time. The speed is estimated from the last SCROLL_RATE_WINDOW_S
         of readings and the release allows for RELEASE_LAG_S of further
-        movement. Readings that go the wrong way or jump implausibly far (a
-        frame caught mid-change) are ignored. Returns the value at release."""
+        movement. Readings that go the wrong way, or jump further than the
+        current speed allows (a frame caught mid-change), are ignored. Returns the value at release."""
 
         sign = 1 if key is Key.UP else -1
         max_s = min(SCROLL_HOLD_MAX_S, scroll_hold_for(abs(target - current)) + 3.0)
         self.bridge.hold_start(key, int(max_s * 1000))
         started = time.monotonic()
         last = current
+        last_t = started
+        rate = 0.0
         history: list[tuple[float, int]] = [(started, current)]
         try:
             while time.monotonic() - started < max_s:
@@ -792,12 +808,15 @@ class Sequencer:
                     continue
                 value = round(state.numeric_value * scale)
                 moved = (value - last) * sign
-                if moved < 0 or moved > max(60, abs(target - current)):
-                    continue  # mid-change frame or misread
-                last = value
+                # A frame caught mid-change can read as anything (888 for a
+                # blurred 9xx, seen on the kiln), so a jump must fit what the
+                # scroll could have covered since the last good reading.
+                plausible = SCROLL_JUMP_SLACK + SCROLL_JUMP_FACTOR * max(rate, SCROLL_MIN_RATE) * (now - last_t)
+                if moved < 0 or moved > plausible:
+                    continue
+                last, last_t = value, now
                 history.append((now, value))
                 recent = [(t, v) for t, v in history if now - t <= SCROLL_RATE_WINDOW_S]
-                rate = 0.0
                 if len(recent) >= 2 and recent[-1][0] > recent[0][0]:
                     rate = abs(recent[-1][1] - recent[0][1]) / (recent[-1][0] - recent[0][0])
                 # The window's average speed trails the current one on an

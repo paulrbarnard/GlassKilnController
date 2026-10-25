@@ -303,12 +303,14 @@ class _ValueEditor:
     """One PRO value being edited: a tap moves it by 1; a held press scrolls
     it along the curve recorded on the kiln, on a simulated clock (each
     reading advances it by one camera frame); ``miss`` lists tap numbers
-    to ignore. Release takes effect RELEASE_LAG_S later, as on the kiln."""
+    to ignore and ``double`` tap numbers that count twice (the GM LT does
+    both). Release takes effect RELEASE_LAG_S later, as on the kiln."""
 
     FRAME_S = 1 / 30
 
-    def __init__(self, value, scale=1, miss=()):
+    def __init__(self, value, scale=1, miss=(), double=()):
         self.value, self.scale, self.miss, self.presses, self.taps = value, scale, set(miss), [], 0
+        self.double = set(double)
         self.now, self.hold = 0.0, None
 
     def clock(self):
@@ -318,7 +320,7 @@ class _ValueEditor:
         self.presses.append((key, hold_ms))
         self.taps += 1
         if self.taps not in self.miss:
-            self.value += 1 if key is Key.UP else -1
+            self.value += (2 if self.taps in self.double else 1) * (1 if key is Key.UP else -1)
 
     def hold_start(self, key, max_ms):
         self.presses.append((key, -max_ms))
@@ -365,10 +367,10 @@ def _curve_steps(curve, seconds):
     return curve[-1][1] + 300 * (seconds - curve[-1][0])
 
 
-def _editing(monkeypatch, value, scale=1, miss=()):
+def _editing(monkeypatch, value, scale=1, miss=(), double=()):
     import kiln.sequencer as seq
 
-    fake = _ValueEditor(value, scale, miss)
+    fake = _ValueEditor(value, scale, miss, double)
     monkeypatch.setattr(seq, "TAP_GAP_S", 0.0)
     monkeypatch.setattr(seq, "SETTLE_GAP_S", 0.0)
     monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
@@ -398,6 +400,24 @@ def test_set_value_comes_back_down_and_survives_missed_taps(monkeypatch):
     sequencer._set_value(425)  # small change: taps only, two of them missed
     assert fake.value == 425
     assert all(p[1] <= 1000 and p[0] is Key.DOWN for p in fake.presses)
+
+
+def test_set_value_corrects_double_counts_and_a_burst_that_all_missed(monkeypatch):
+    # 2 DOWN from 169 counts 3 (166, as on the kiln), then the single UP
+    # back is missed entirely: both just get corrected from the new reading.
+    sequencer, fake = _editing(monkeypatch, 169, miss={3}, double={1})
+    sequencer._set_value(167)
+    assert fake.value == 167
+
+
+def test_set_value_gives_up_after_its_attempts(monkeypatch):
+    import pytest
+    from kiln.sequencer import SequenceError
+
+    sequencer, fake = _editing(monkeypatch, 100, miss=set(range(1, 100)))
+    with pytest.raises(SequenceError, match="couldn't set the value to 105"):
+        sequencer._set_value(105)
+    assert len(fake.presses) < 100
 
 
 def test_set_value_holds_are_hours_and_minutes(monkeypatch):
