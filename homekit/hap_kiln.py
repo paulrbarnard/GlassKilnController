@@ -17,8 +17,10 @@ and shows the kiln as two accessories' worth of services:
     <target>", which said "Heat to 37°" for an idle kiln). It's read-only:
     HomeKit has no read-only heater, so any change made in the Home app is
     put straight back and nothing reaches the kiln.
-  - an occupancy sensor ("Kiln hot"): detected at or above 40 °C. Turn on
-    its notifications in the Home app to hear when the kiln is safe to open.
+  - an occupancy sensor ("Kiln safe to open"): detected below 40 °C. Home
+    only notifies when occupancy is *detected* (its options are just who is
+    at home), so a "Kiln hot" sensor notified when the kiln got hot; this
+    way round, its notification says the kiln has cooled.
 """
 
 from __future__ import annotations
@@ -65,7 +67,7 @@ def http_json(path: str, timeout: float = 5):
 
 def named_service(kind: str, name: str, chars: tuple[str, ...] = ()):
     """A service with a Name and a ConfiguredName: the Home app shows the
-    ConfiguredName (iOS 16 on), and with only Name set the "Kiln hot" sensor
+    ConfiguredName (iOS 16 on), and with only Name set the sensor
     showed up as "Occupancy Sensor". Every characteristic has to be added
     before the service goes on the accessory, which is what gives them their
     ids (adding one afterwards crashed the HAP server)."""
@@ -115,9 +117,9 @@ class Kiln(Accessory):
             "CoolingThresholdTemperature", value=SAFE_C, properties=TEMP_PROPS, setter_callback=self._undo
         )
 
-        hot = named_service("OccupancySensor", "Kiln hot")
-        self.add_service(hot)
-        self.char_hot = hot.configure_char("OccupancyDetected", value=0)
+        safe = named_service("OccupancySensor", "Kiln safe to open")
+        self.add_service(safe)
+        self.char_safe = safe.configure_char("OccupancyDetected", value=1)
 
         self._shown: dict = {}
         self._peaks: dict[str, float] = {}
@@ -187,6 +189,7 @@ class Kiln(Accessory):
             "target": target if state != COOLING else self._shown.get("target", target),
             "cool_target": SAFE_C,
             "hot": 1 if reading.get("hot") else 0,
+            "safe": 0 if reading.get("hot") else 1,
         }
         for char, key in (
             (self.char_active, "active"),
@@ -195,7 +198,7 @@ class Kiln(Accessory):
             (self.char_temp, "temp"),
             (self.char_target, "target"),
             (self.char_cool_target, "cool_target"),
-            (self.char_hot, "hot"),
+            (self.char_safe, "safe"),
         ):
             if self._shown.get(key) != shown[key]:
                 char.set_value(shown[key])
@@ -275,7 +278,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if os.environ.get("HAP_DEBUG"):
         # Subscriptions and event sends: shows whether the home hub hears of
-        # changes (e.g. "Kiln hot" for its notification).
+        # changes (e.g. "Kiln safe to open" for its notification).
         logging.getLogger("pyhap.accessory_driver").setLevel(logging.DEBUG)
         logging.getLogger("pyhap.hap_handler").setLevel(logging.DEBUG)
     os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
