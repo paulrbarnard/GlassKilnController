@@ -743,8 +743,10 @@ table.segment-editor input {
   color: var(--temp-hot);
 }
 
-.cooling-temp.cool {
-  color: var(--temp-cool);
+.cooling-label {
+  font-size: 30px;
+  font-weight: bold;
+  color: var(--temp-hot);
 }
 
 .cooling-eta {

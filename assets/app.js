@@ -341,38 +341,44 @@ function formatHoursMinutes(hours) {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
-// Pops up over the firing screen when a firing has ended with the kiln hot:
-// how long it will take to cool below 40 °C / 104 °F. Updated with every
-// reading; once closed it stays closed for that firing.
+// Pops up over the firing screen when a firing has ended with the kiln at or
+// above 40 °C / 104 °F: the firing has finished, the kiln is cooling, and
+// about how long until it's below 40 °C (revised with every reading). It
+// clears itself once the kiln is below 40 °C (and never opens if it never
+// was that hot), leaving the finished firing screen. Closed by hand, it
+// stays closed for that firing; the home screen still shows the estimate.
 let coolingPopupClosedFor = null; // fired_at of the firing whose popup was closed
 
 const FINISHED_TITLES = {
-  complete: 'Firing complete – cooling',
-  ended: 'Program ended – cooling',
-  stopped: 'Firing stopped – cooling',
-  error: 'Kiln shut off – cooling',
+  complete: 'Firing complete',
+  ended: 'Program ended',
+  stopped: 'Firing stopped',
+  error: 'Kiln shut itself off',
 };
 
 function renderCoolingPopup(st, live) {
   const popup = document.getElementById('cooling-popup');
   const onRunScreen = document.getElementById('screen-run').classList.contains('active');
-  const wanted =
-    onRunScreen && st && st.fired_at && !firingActive() && live && !live.off && coolingPopupClosedFor !== st.fired_at;
-  // Opens only while hot; once open it stays to show the kiln has cooled.
-  if (!wanted || (popup.hidden && !live.hot)) {
-    if (!wanted) popup.hidden = true;
-    return;
+  // Until the first reading after the firing, go by the firing's last one.
+  let reading = live;
+  if (!reading && st && st.temp !== null && st.temp !== undefined) {
+    const tempC = st.unit === 'F' ? ((st.temp - 32) * 5) / 9 : st.temp;
+    reading = { temp: st.temp, unit: st.unit, hot: tempC >= 40, off: false, cooling: true, cool_by: null };
   }
-  popup.hidden = false;
-  document.getElementById('cooling-title').textContent = live.hot
-    ? FINISHED_TITLES[st.phase] || 'Firing finished – cooling'
-    : 'Cooled: safe to open';
-  const temp = document.getElementById('cooling-temp');
-  temp.textContent = `${Math.round(live.temp)}°${live.unit}`;
-  temp.className = live.hot ? 'cooling-temp' : 'cooling-temp cool';
-  document.getElementById('cooling-eta').textContent = live.hot
-    ? coolingText(live) || 'Estimating cooling time…'
-    : `The kiln is below ${live.unit === 'F' ? '104°F' : '40°C'}.`;
+  const show =
+    onRunScreen &&
+    st &&
+    st.fired_at &&
+    !firingActive() &&
+    coolingPopupClosedFor !== st.fired_at &&
+    reading &&
+    !reading.off &&
+    reading.hot;
+  popup.hidden = !show;
+  if (!show) return;
+  document.getElementById('cooling-title').textContent = FINISHED_TITLES[st.phase] || 'Firing finished';
+  document.getElementById('cooling-temp').textContent = `${Math.round(reading.temp)}°${reading.unit}`;
+  document.getElementById('cooling-eta').textContent = coolingText(reading) || 'Estimating cooling time…';
 }
 
 function closeCoolingPopup() {
