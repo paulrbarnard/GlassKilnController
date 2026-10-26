@@ -197,13 +197,3 @@ def test_room_temperature_is_the_lowest_recent_cool_reading():
     clock[0] += 25 * 3600  # a day later the old reading has gone stale
     reader.poll()
     assert reader._room_c == 35.0  # (capped below 40)
-
-
-def test_a_flat_spell_after_the_firing_doesnt_slow_the_estimate():
-    # 9 minutes level at 51 °C (heat spreading from the elements), then
-    # Newtonian cooling: the estimate should match cooling alone.
-    flat = [(t, 51.0) for t in range(0, 9 * 60, 15)]
-    cooling = [(9 * 60 + t, newton(t, start=51.0, room=17.0, k=1 / 1800)) for t in range(0, 15 * 60 + 1, 15)]
-    eta = cooling_eta_s(flat + cooling, room_c=17.0)
-    alone = cooling_eta_s(cooling, room_c=17.0)
-    assert abs(eta - alone) < 30

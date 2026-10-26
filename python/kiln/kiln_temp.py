@@ -81,15 +81,6 @@ def cooling_eta_s(samples: list[tuple[float, float]], room_c: float) -> Optional
 
     if len(samples) < 3 or room_c >= HOT_C - 1.0:
         return None
-    # Fit from the last time it was at its highest: straight after a firing
-    # a kiln holds its temperature for a while as the heat spreads from the
-    # elements (9 minutes at 51 °C on the kiln, 2026-10-26), and those flat
-    # readings made the cooling look slower than it was.
-    peak = max(temp for _, temp in samples)
-    start = max(i for i, (_, temp) in enumerate(samples) if temp == peak)
-    samples = samples[start:]
-    if len(samples) < 3:
-        return None
     (t0, first), (t_last, last) = samples[0], samples[-1]
     if t_last - t0 < COOLING_MIN_SPAN_S or first - last < COOLING_MIN_DROP_C:
         return None
