@@ -8,7 +8,7 @@ LED display, driven by long menu sequences (see `docs/controller_protocol.md`).
 This project sits physically on top of the kiln's existing control panel and:
 
 - Shows firing profiles (Full Fuse / Tack Fuse / Slump / custom Ramp & Hold)
-  as plain-language ramp/hold/cool diagrams on an 8" touchscreen.
+  as plain-language ramp/hold/cool diagrams on a touchscreen.
 - Reads the GM LT's 7-segment display via a camera pointed at it, so it always
   knows the controller's actual state (mode, segment, temperature, errors).
 - Presses the GM LT's three physical buttons (ENTER/START/STOP, UP, DOWN)
@@ -23,16 +23,22 @@ land correctly via the camera before advancing.
 
 - **Arduino UNO Q** — STM32 MCU (real-time sketch side) + Linux MPU (Python
   "brain" side), connected internally over the Bridge RPC.
-- **8" touchscreen** (HDMI/USB or DSI, capacitive touch) — profile browser,
-  diagrams, run/monitor screen. Driven by a browser pointed at the app's
-  own web UI (port 7000) — a native GUI toolkit was tried first and
-  confirmed unworkable in the App Lab container (see
-  `docs/architecture.md`).
-- **Camera** — framed on the GM LT's red 7-segment display, used to read
-  controller state (`python/kiln/vision.py`).
-- **3x 12V push-pull solenoids** — one per GM LT key (ENTER, UP, DOWN),
-  mounted so each can press-and-release its button on command, driven from
-  D9-D11 through a MonkMakes Mosfetti MOSFET board (`sketch/`).
+- **Touchscreen** — profile browser, diagrams, run/monitor screen, shown by
+  a kiosk Chromium pointed at the app's own web UI (port 7000); a native
+  GUI toolkit was tried first and confirmed unworkable in the App Lab
+  container (see `docs/architecture.md`). Currently a 7" 1024x600 HDMI
+  panel; a Waveshare 8" DSI panel (8-DSI-TOUCH-A) is on order to replace it.
+- **Camera** — a Pi Camera V2 (IMX219) on the Media Carrier, 105 mm from the
+  GM LT's red 7-segment display, refocused for that distance; read by a
+  segment decoder (`python/kiln/vision.py`,
+  `python/config/camera_calibration.yaml`).
+- **3x 12V push-pull solenoids** — one per GM LT key (ENTER, UP, DOWN), each
+  pressing its button through a 4:1 lever with an adjustable finger, driven
+  from D9-D11 through a MonkMakes Mosfetti MOSFET board (`sketch/`). They
+  are rated 5% duty at 12 V, so every press is a short full-power kick then
+  a reduced PWM hold, and both the sketch and the app keep a heat budget per
+  coil. The module covers the whole front panel: the kiln is operated only
+  through the app.
 
 ## Why not talk to the kiln electrically instead?
 
@@ -66,18 +72,45 @@ app.yaml                    Arduino App Lab manifest (name/icon/ports/bricks)
 
 ## Status
 
-Deployed and running end-to-end on real hardware (an Uno Q named "Steffi"):
-sketch compiles and flashes, the Python side reaches it over the Bridge RPC
-(`ping`/`press_button` both confirmed live), and the web UI serves real
-profile data over its REST API. What's still pending the physical build:
-camera-based 7-segment reading (`RealVision` is a deliberate stub — see
-`TODO(hardware)` in `python/kiln/vision.py`) and solenoid mounting/tuning
-(`python/config/solenoid_calibration.yaml`). See `docs/architecture.md` for
-the full trail of what was confirmed on real hardware vs. still assumed,
-including two dead ends worth knowing about before you touch this again:
-PySide6 doesn't work in the App Lab container (missing graphics libs), and
-this board's PWM pins are fixed at 500Hz so the classic `Servo` library
-doesn't either — both documented there with what to use instead.
+Working end to end on the kiln (an Uno Q named "Steffi"), confirmed
+October 2026:
+
+- **Reading the controller**: the camera decodes the display, including
+  the glyphs the GM LT uses for letters, the °C indicator (the last digit's
+  decimal point) and the IdLE/temperature alternation at rest.
+- **Units**: the app chooses °C or °F and sets the GM LT to match
+  (default °C).
+- **Firing**: built-in GlassFire profiles and custom Ramp & Hold profiles
+  start from the touchscreen; the firing screen shows live progress and a
+  temperature trace, and STOP is verified against the display. Only one
+  controller action runs at a time.
+- **Kiln programs**: the GM LT's five PRO slots can be read, shown as
+  diagrams, imported as app profiles, and written from app profiles. Every
+  write is read back and only counts if it matches.
+- **Slot management**: the app maps its custom profiles onto the five PRO
+  slots by itself. A profile that isn't on the kiln
+  replaces the least-used one (unknown, then stale, then least fired, then
+  least recently fired), so reprogramming is rare. The slot is checked
+  before every start (`python/kiln/slots.py`).
+- **Value entry**: values are scrolled with held UP/DOWN presses watched by
+  the camera and released just short of the target, then finished with
+  single checked taps. The GM LT sometimes steps 2-3 for one tap when
+  presses come close together, so taps are 2 s apart and the first comes
+  5 s after a hold; anything that still lands off target is corrected (see
+  `python/kiln/sequencer.py`). A 4-segment program takes about 4 minutes.
+- **Recovery**: a controller left in a menu is returned to IdLE before a
+  sequence starts, and a failed write backs out to IdLE and says so (with
+  Try again). If the controller can't be brought back, the app asks for the
+  kiln to be power-cycled.
+
+Not yet done: °F value entry on the kiln, the MGF override flow, a cap of
+12 custom profiles (planned, not enforced yet), and the switch to the DSI
+display (enabling DSI in the device tree currently breaks
+the camera's, so it needs a plan). See `docs/architecture.md` for what was
+confirmed on hardware and the dead ends: PySide6 doesn't work in the App Lab
+container, and this board's PWM pins are fixed at 500 Hz, so the `Servo`
+library doesn't either (the original servo actuators were replaced by
+solenoids).
 
 ## Getting started
 
@@ -100,9 +133,23 @@ pip install -r requirements.txt
 python main.py --mock-bridge --mock-vision
 ```
 
-Real automated coverage of both layers lives in `python/tests/` (17 tests,
+Real automated coverage of both layers lives in `python/tests/` (123 tests,
 run with `pytest` from `python/`) — that's what to extend, not manual runs
 of `main.py`.
+
+**On-board tools** in `scripts/`, run inside the app container (`docker exec
+glass-kiln-controller-main-1 python /app/scripts/...`) with the controller
+at IdLE:
+
+- `read_display.sh` / `focus.sh` — check what the camera reads; focus the lens
+- `solenoid_test.py` — find the lowest working tap and hold duties
+- `scroll_profile.py` — record how a held UP/DOWN accelerates (the
+  `SCROLL_CURVE` source)
+- `tap_test.py` — measure steps per tap against tap spacing, after holds,
+  and across a range of values
+- `set_value_test.py` — run the app's own value entry by hand, every press
+  and reading logged
+- `step.py` — press one key and record what the display does
 
 ## Key references
 

@@ -50,7 +50,8 @@ full-power kick to pull the plunger in, then drops to a PWM hold duty that
 keeps it there without overheating the coil. This board's PWM pins are
 hardware-fixed at 500Hz, which suits a solenoid fine. Only one solenoid is
 ever energised: all outputs are switched off before and after each press,
-and a press longer than 8s is rejected. All gates are driven LOW in
+and a press longer than 30 s is rejected (held presses also stop by
+themselves at their own limit). All gates are driven LOW in
 `setup()` so nothing fires while the Bridge comes up. Before the sketch is
 running (power-up, reflash) the pins aren't driven, so check that the
 Mosfetti holds its gates off when its inputs float, or add a pull-down per
