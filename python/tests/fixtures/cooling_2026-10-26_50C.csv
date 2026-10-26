@@ -1,0 +1,17 @@
+# Kiln cooling after the "Cooling test (50°C)" firing, 2026-10-26 (CPLt at
+# 12:06:20). First time each whole degree showed on the GM LT display, read
+# by the app (kiln/kiln_temp.py); room 17 °C. The app's first estimate
+# (12:26, Newton's law, room 17 °C) said 12:57; it showed 39 at 13:09:40.
+clock,temp_c
+12:06:27,51
+12:15:03,50
+12:15:50,49
+12:20:29,48
+12:20:44,47
+12:26:08,46
+12:31:58,45
+12:37:55,44
+12:49:22,42
+12:52:54,41
+13:05:02,40
+13:09:40,39

@@ -197,3 +197,19 @@ def test_room_temperature_is_the_lowest_recent_cool_reading():
     clock[0] += 25 * 3600  # a day later the old reading has gone stale
     reader.poll()
     assert reader._room_c == 35.0  # (capped below 40)
+
+
+def test_cooling_readings_are_logged_for_tuning(tmp_path):
+    clock = [1000.0]
+    reader = KilnTemperature(
+        MockVision(script=["  60."]), publish=lambda _: None, celsius=lambda: True,
+        busy=lambda: False, firing_temp=lambda: None, clock=lambda: clock[0],
+        cooling_log_dir=tmp_path,
+    )
+    reader.poll()
+    clock[0] += 15
+    reader.poll()
+    [log_file] = list(tmp_path.glob("*.csv"))
+    lines = log_file.read_text().splitlines()
+    assert lines[0] == "epoch_s,temp_c,room_c,estimated_safe_epoch_s"
+    assert lines[1].startswith("1000,60.0,20.0,") and len(lines) == 3

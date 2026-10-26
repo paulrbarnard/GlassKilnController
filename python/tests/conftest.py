@@ -7,3 +7,4 @@ def _private_kiln_slot_map(tmp_path, monkeypatch):
 
     monkeypatch.setattr("web.api.SLOTS_PATH", tmp_path / "kiln_slots.json")
     monkeypatch.setattr("web.api.ROOM_PATH", tmp_path / "kiln_room.json")
+    monkeypatch.setattr("web.api.COOLING_LOG_DIR", tmp_path / "cooling")

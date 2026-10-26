@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol
 
 from kiln.firing import FiringMonitor
-from kiln.kiln_temp import ROOM_PATH, KilnTemperature
+from kiln.kiln_temp import COOLING_LOG_DIR, ROOM_PATH, KilnTemperature
 from kiln.profiles import Profile, ProfileKind, ProfileLibrary
 from kiln.programs import same_segments
 from kiln.sequencer import ProgramMismatch, Sequencer, SequenceAborted, SequenceError
@@ -114,6 +114,7 @@ def register_routes(
         busy=controller_busy,
         firing_temp=lambda: monitor.status().get("temp"),
         room_path=ROOM_PATH,
+        cooling_log_dir=COOLING_LOG_DIR,
     )
 
     def run_in_background(task: Callable[[], None]) -> None:

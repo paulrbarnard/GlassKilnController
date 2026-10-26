@@ -46,6 +46,10 @@ HOT_C = 40.0  # at or above this the kiln isn't safe to open
 SAFE_SHOWN_C = HOT_C - 0.5
 ROOM_PATH = Path(__file__).resolve().parent.parent / "state" / "kiln_room.json"
 ROOM_MAX_AGE_S = 24 * 3600.0  # room temperature: the lowest cool reading this recent
+# Every reading of a kiln cooling after a firing, with what was estimated at
+# the time, one CSV per cooling: real curves to tune the estimate against
+# (on the kiln, 2026-10-26, the estimate came out ~1.45x too short).
+COOLING_LOG_DIR = Path(__file__).resolve().parent.parent / "state" / "cooling"
 IDLE_HOT_S = 15.0  # how often to read while hot (or not known yet)
 IDLE_COOL_S = 60.0  # ...and once it has cooled
 IDLE_OFF_S = 30.0  # ...and while the kiln is switched off
@@ -127,6 +131,7 @@ class KilnTemperature:
         firing_temp: Callable[[], Optional[float]],
         clock: Callable[[], float] = time.time,
         room_path: Optional[Path] = None,
+        cooling_log_dir: Optional[Path] = None,
     ):
         self._vision = vision
         self._publish = publish
@@ -138,6 +143,8 @@ class KilnTemperature:
         # mid-cooling otherwise falls back on ASSUMED_ROOM_C).
         self._room_path = room_path
         self._room_c, self._room_at = self._load_room()
+        self._cooling_log_dir = cooling_log_dir
+        self._cooling_log: Optional[Path] = None  # the current cooling's CSV
         self._cooling: list[tuple[float, float]] = []  # (epoch s, °C) since nothing ran
         self._lock = threading.Lock()
         self._latest = KilnTemp()
@@ -227,11 +234,14 @@ class KilnTemperature:
                 self._cooling = []
             elif not cooling or (self._cooling and temp_c > self._cooling[-1][1] + 2.0):
                 self._cooling = []  # firing, or heating up again: start over
+            if not (hot and cooling):
+                self._cooling_log = None
             if hot and cooling:
                 self._cooling.append((now, temp_c))
                 self._cooling = [(t, c) for t, c in self._cooling if now - t <= COOLING_WINDOW_S]
                 eta = cooling_eta_s(self._cooling, self._room_c)
                 cool_by = None if eta is None else now + eta
+                self._log_cooling(now, temp_c, cool_by)
             self._latest = KilnTemp(
                 temp=temp,
                 unit="C" if celsius else "F",
@@ -241,6 +251,20 @@ class KilnTemperature:
                 cooling=hot and cooling,
             )
         self._emit()
+
+    def _log_cooling(self, now: float, temp_c: float, cool_by: Optional[float]) -> None:
+        if self._cooling_log_dir is None:
+            return
+        try:
+            if self._cooling_log is None:
+                self._cooling_log_dir.mkdir(parents=True, exist_ok=True)
+                name = time.strftime("%Y-%m-%d_%H%M", time.localtime(now)) + ".csv"
+                self._cooling_log = self._cooling_log_dir / name
+                self._cooling_log.write_text(f"epoch_s,temp_c,room_c,estimated_safe_epoch_s\n")
+            with self._cooling_log.open("a") as fh:
+                fh.write(f"{now:.0f},{temp_c:.1f},{self._room_c:.1f},{'' if cool_by is None else f'{cool_by:.0f}'}\n")
+        except OSError:
+            log.warning("couldn't write the cooling log %s", self._cooling_log)
 
     def _load_room(self) -> tuple[float, Optional[float]]:
         try:
