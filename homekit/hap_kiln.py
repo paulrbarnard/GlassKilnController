@@ -62,14 +62,20 @@ def http_json(path: str, timeout: float = 5):
         return json.loads(resp.read())
 
 
-def name_service(service, name: str) -> None:
-    """The Home app shows a service's ConfiguredName (iOS 16 on); with only
-    Name set, the "Kiln hot" sensor showed up as "Occupancy Sensor"."""
+def named_service(kind: str, name: str, chars: tuple[str, ...] = ()):
+    """A service with a Name and a ConfiguredName: the Home app shows the
+    ConfiguredName (iOS 16 on), and with only Name set the "Kiln hot" sensor
+    showed up as "Occupancy Sensor". Every characteristic has to be added
+    before the service goes on the accessory, which is what gives them their
+    ids (adding one afterwards crashed the HAP server)."""
 
+    loader = get_loader()
+    service = loader.get_service(kind)
+    for char in (*chars, "Name", "ConfiguredName"):
+        service.add_characteristic(loader.get_char(char))
     service.configure_char("Name", value=name)
-    configured = get_loader().get_char("ConfiguredName")
-    service.add_characteristic(configured)
-    configured.set_value(name)
+    service.configure_char("ConfiguredName", value=name)
+    return service
 
 
 def to_c(temp: float, unit: str) -> float:
@@ -88,10 +94,8 @@ class Kiln(Accessory):
             firmware_revision="1.0",
         )
 
-        heater = self.add_preload_service(
-            "HeaterCooler", chars=["HeatingThresholdTemperature", "Name"]
-        )
-        name_service(heater, NAME)
+        heater = named_service("HeaterCooler", NAME, chars=("HeatingThresholdTemperature",))
+        self.add_service(heater)
         self.char_active = heater.configure_char("Active", value=0, setter_callback=self._undo)
         self.char_state = heater.configure_char("CurrentHeaterCoolerState", value=INACTIVE)
         # Heat is its only mode: set the value before narrowing the valid
@@ -105,8 +109,8 @@ class Kiln(Accessory):
             "HeatingThresholdTemperature", value=20, properties=TEMP_PROPS, setter_callback=self._undo
         )
 
-        hot = self.add_preload_service("OccupancySensor", chars=["Name"])
-        name_service(hot, "Kiln hot")
+        hot = named_service("OccupancySensor", "Kiln hot")
+        self.add_service(hot)
         self.char_hot = hot.configure_char("OccupancyDetected", value=0)
 
         self._shown: dict = {}
