@@ -117,10 +117,12 @@ class KilnTemperature:
         """The temperature if one shows within READ_WINDOW_S, and whether
         the display was dark the whole time."""
 
-        deadline = time.monotonic() + READ_WINDOW_S
+        deadline = None  # from the first frame: opening the camera takes ~6 s
         dark = True
-        while time.monotonic() < deadline:
+        while deadline is None or time.monotonic() < deadline:
             state = self._vision.read()
+            if deadline is None:
+                deadline = time.monotonic() + READ_WINDOW_S
             if state.message is None and state.numeric_value is not None:
                 return state.numeric_value, False
             dark = dark and is_dark(state.raw_text)
