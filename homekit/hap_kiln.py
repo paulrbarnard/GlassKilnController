@@ -11,11 +11,12 @@ reads the App Lab app on http://127.0.0.1:7000 every POLL_S:
 
 and shows the kiln as two accessories' worth of services:
 
-  - a Heater ("Kiln"): Heating while a firing runs, Cooling after one while
-    the kiln is at or above 40 °C, Idle below that, Off when the kiln is
-    switched off. It's read-only: HomeKit has no read-only heater, so any
-    change made in the Home app is put straight back and nothing reaches
-    the kiln.
+  - a Heater ("Kiln"): "Heating to <peak>" while a firing runs, "Cooling to
+    40°" after one while the kiln is at or above 40 °C, otherwise Off (the
+    Home tile has no idle state: switched on, it always reads "Heat to
+    <target>", which said "Heat to 37°" for an idle kiln). It's read-only:
+    HomeKit has no read-only heater, so any change made in the Home app is
+    put straight back and nothing reaches the kiln.
   - an occupancy sensor ("Kiln hot"): detected at or above 40 °C. Turn on
     its notifications in the Home app to hear when the kiln is safe to open.
 """
@@ -52,7 +53,7 @@ TEMP_PROPS = {"minValue": -20, "maxValue": 1300, "minStep": 1}
 
 # HeaterCooler characteristic values (HAP spec)
 INACTIVE, IDLE, HEATING, COOLING = 0, 1, 2, 3  # CurrentHeaterCoolerState
-TARGET_HEAT = 1  # TargetHeaterCoolerState
+TARGET_HEAT, TARGET_COOL = 1, 2  # TargetHeaterCoolerState
 SAFE_C = 40  # below this the app says "Safe to open" (python/kiln/kiln_temp.py HOT_C)
 ACTIVE_PHASES = ("programming", "firing", "stopping")
 
@@ -94,19 +95,24 @@ class Kiln(Accessory):
             firmware_revision="1.0",
         )
 
-        heater = named_service("HeaterCooler", NAME, chars=("HeatingThresholdTemperature",))
+        heater = named_service(
+            "HeaterCooler", NAME, chars=("HeatingThresholdTemperature", "CoolingThresholdTemperature")
+        )
         self.add_service(heater)
         self.char_active = heater.configure_char("Active", value=0, setter_callback=self._undo)
         self.char_state = heater.configure_char("CurrentHeaterCoolerState", value=INACTIVE)
-        # Heat is its only mode: set the value before narrowing the valid
-        # values, or HAP-python rejects its default of 0 (Auto).
+        # Heat or Cool only: set the value before narrowing the valid values,
+        # or HAP-python rejects its default of 0 (Auto).
         self.char_target_state = heater.configure_char(
             "TargetHeaterCoolerState", value=TARGET_HEAT, setter_callback=self._undo
         )
-        self.char_target_state.override_properties(valid_values={"Heat": TARGET_HEAT})
+        self.char_target_state.override_properties(valid_values={"Heat": TARGET_HEAT, "Cool": TARGET_COOL})
         self.char_temp = heater.configure_char("CurrentTemperature", value=20, properties=TEMP_PROPS)
         self.char_target = heater.configure_char(
             "HeatingThresholdTemperature", value=20, properties=TEMP_PROPS, setter_callback=self._undo
+        )
+        self.char_cool_target = heater.configure_char(
+            "CoolingThresholdTemperature", value=SAFE_C, properties=TEMP_PROPS, setter_callback=self._undo
         )
 
         hot = named_service("OccupancySensor", "Kiln hot")
@@ -126,6 +132,7 @@ class Kiln(Accessory):
             (self.char_active, "active"),
             (self.char_target_state, "target_state"),
             (self.char_target, "target"),
+            (self.char_cool_target, "cool_target"),
         ):
             if key in self._shown:
                 char.set_value(self._shown[key])
@@ -155,13 +162,13 @@ class Kiln(Accessory):
         temp_c = None if temp is None else to_c(float(temp), unit)
 
         if firing_now:
-            state, active = HEATING, 1
+            state, active, mode = HEATING, 1, TARGET_HEAT
         elif reading.get("off"):
-            state, active = INACTIVE, 0
+            state, active, mode = INACTIVE, 0, TARGET_HEAT
         elif reading.get("hot"):
-            state, active = COOLING, 1
+            state, active, mode = COOLING, 1, TARGET_COOL
         else:
-            state, active = IDLE, 1
+            state, active, mode = INACTIVE, 0, TARGET_HEAT  # idle: shown as Off
         shown_temp = round(temp_c) if temp_c is not None else self._shown.get("temp", 20)
         # The heater's "target": the profile's peak while firing, the safe
         # temperature while cooling, otherwise just the temperature.
@@ -175,9 +182,10 @@ class Kiln(Accessory):
         shown = {
             "active": active,
             "state": state,
-            "target_state": TARGET_HEAT,
+            "target_state": mode,
             "temp": shown_temp,
-            "target": target,
+            "target": target if state != COOLING else self._shown.get("target", target),
+            "cool_target": SAFE_C,
             "hot": 1 if reading.get("hot") else 0,
         }
         for char, key in (
@@ -186,6 +194,7 @@ class Kiln(Accessory):
             (self.char_target_state, "target_state"),
             (self.char_temp, "temp"),
             (self.char_target, "target"),
+            (self.char_cool_target, "cool_target"),
             (self.char_hot, "hot"),
         ):
             if self._shown.get(key) != shown[key]:
@@ -193,7 +202,8 @@ class Kiln(Accessory):
         if (self._shown.get("state"), self._shown.get("hot")) != (state, shown["hot"]):
             log.info(
                 "kiln %s, %s°C%s",
-                {INACTIVE: "off", IDLE: "idle", HEATING: "heating", COOLING: "cooling"}[state],
+                "switched off" if reading.get("off") else
+                {INACTIVE: "idle", IDLE: "idle", HEATING: "heating", COOLING: "cooling"}[state],
                 shown["temp"],
                 ", hot" if shown["hot"] else "",
             )
