@@ -112,6 +112,14 @@ October 2026:
   / Busy / Kiln off, the firing screen during a firing, the temperature and
   cooling estimate). It has no controls; the full app at the same address
   without `?view` does.
+- **Apple Home**: a HomeKit companion (`homekit/`, its own docker compose
+  project with host networking, since App Lab containers can't do mDNS)
+  shows the kiln as a heater: Heating while firing, Cooling after a firing
+  while at or above 40 °C, Idle, or Off. It's read-only (changes made in
+  Home are put back). A "Kiln hot" occupancy sensor can notify when the
+  kiln is safe to open (turn on its activity notifications in Home
+  Settings). `scripts/deploy.sh --homekit` rebuilds it; the pairing keys
+  stay in `homekit/state/` on the board.
 - **Recovery**: a controller left in a menu is returned to IdLE before a
   sequence starts, and a failed write backs out to IdLE and says so (with
   Try again). If the controller can't be brought back, the app asks for the
