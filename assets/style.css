@@ -779,3 +779,39 @@ table.segment-editor input {
 .kiln-card .card-buttons button {
   flex: 1;
 }
+
+/* -- Read-only status view (?view, see VIEW_ONLY in app.js) --------------------- */
+
+.view-only-note {
+  display: none;
+}
+
+body.view-only .view-only-note {
+  display: block;
+  color: var(--text-dim);
+  font-size: 15px;
+  margin: 0;
+}
+
+/* Nothing to press: the controls go, and nothing left takes a tap. */
+body.view-only button,
+body.view-only .nav-stack,
+body.view-only .row:has(> button),
+body.view-only #run-log {
+  display: none !important;
+}
+
+body.view-only {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Not tied to the kiosk's 1024x600 panel: let it fill a phone or laptop. */
+body.view-only .screen {
+  height: auto;
+  min-height: 100vh;
+}
+
+body.view-only .diagram-wrap {
+  min-height: 280px;
+}

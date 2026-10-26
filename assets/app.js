@@ -26,6 +26,29 @@ async function api(method, path, body) {
   return data;
 }
 
+// Read-only status view (http://<board>:7000/?view), for keeping an eye on
+// the kiln from elsewhere on the home network: the firing screen while a
+// firing runs, or has finished with the kiln still hot, else the home
+// screen's temperature panel. Nothing in it can be pressed or changed, and
+// it never pops up a dialog; it follows the kiln by itself.
+const VIEW_ONLY = new URLSearchParams(location.search).has('view');
+if (VIEW_ONLY) {
+  document.body.classList.add('view-only');
+  window.alert = (message) => console.info('alert (view only):', message);
+  window.confirm = () => false;
+}
+
+function viewOnlyScreen() {
+  if (!VIEW_ONLY) return;
+  const st = firingStatus;
+  const finishedHot = st && st.fired_at && !firingActive() && latestKilnTemp && latestKilnTemp.hot && !latestKilnTemp.off;
+  const want = firingActive() || finishedHot ? 'screen-run' : 'screen-home';
+  if (!document.getElementById(want).classList.contains('active')) {
+    showScreen(want);
+    if (want === 'screen-run') requestAnimationFrame(renderFiring);
+  }
+}
+
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach((el) => el.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -470,6 +493,7 @@ async function setFiring(status) {
     }
   }
   renderFiring();
+  viewOnlyScreen();
 }
 
 function openRunScreen() {
@@ -792,6 +816,7 @@ function renderKilnTemp(d) {
 async function loadKilnTemp() {
   try {
     renderKilnTemp(await api('GET', '/api/kiln_temp'));
+    viewOnlyScreen();
   } catch (e) {
     // Keep whatever is showing; the next pushed reading will update it.
   }
@@ -800,6 +825,7 @@ async function loadKilnTemp() {
 ui.on_message('kiln_temp', (d) => {
   renderKilnTemp(d);
   if (firingStatus && !firingActive()) renderFiring();
+  viewOnlyScreen();
 });
 
 ui.on_message('progress', (data) => {

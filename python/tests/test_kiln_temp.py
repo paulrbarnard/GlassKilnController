@@ -157,3 +157,14 @@ def test_temperature_and_time_in_fahrenheit():
     assert reader.poll() == 98.0
     reader2, published = make(["0.08"], celsius=False)
     assert reader2.poll() is None and published == []
+
+
+def test_estimate_doesnt_drift_while_the_reading_sits_on_a_degree():
+    # Whole degrees only, as the display shows them: the estimated time of
+    # reaching 40 °C should hold steady between degree changes.
+    samples = [(t, float(round(newton(t, start=80.0, room=17.0, k=1 / 1800)))) for t in range(0, 30 * 60 + 1, 15)]
+    finish_times = []
+    for n in range(len(samples) - 40, len(samples)):
+        window = samples[: n + 1]
+        finish_times.append(window[-1][0] + cooling_eta_s(window, room_c=17.0))
+    assert max(finish_times) - min(finish_times) < 120  # within 2 min over the last 10 min

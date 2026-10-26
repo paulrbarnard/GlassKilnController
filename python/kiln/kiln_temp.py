@@ -65,7 +65,11 @@ def is_hot(temp: float, celsius: bool) -> bool:
 def cooling_eta_s(samples: list[tuple[float, float]], room_c: float) -> Optional[float]:
     """Seconds from the last sample until the kiln is below HOT_C, from
     (epoch s, °C) readings of it cooling; None until there's enough to go on.
-    Fits ln(T - room) against time (a straight line under Newton's law)."""
+    Fits ln(T - room) against time (a straight line under Newton's law) and
+    works from the fitted temperature at the last sample, not the reading
+    itself: the display only shows whole degrees, so a reading sits on one
+    value for minutes while the kiln keeps cooling, and estimating from it
+    pushed the time later and later until the next degree showed."""
 
     if len(samples) < 3 or room_c >= HOT_C - 1.0:
         return None
@@ -84,9 +88,10 @@ def cooling_eta_s(samples: list[tuple[float, float]], room_c: float) -> Optional
     k = -sum((t - mean_t) * (y - mean_y) for t, y in points) / var_t
     if k <= 0:
         return None
-    if last < HOT_C:
+    fitted_now = mean_y - k * ((t_last - t0) - mean_t)  # ln(T - room) at the last sample
+    eta = (fitted_now - math.log(HOT_C - room_c)) / k
+    if eta <= 0:
         return 0.0
-    eta = math.log((last - room_c) / (HOT_C - room_c)) / k
     return eta if eta <= COOLING_MAX_S else None
 
 
