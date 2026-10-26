@@ -786,7 +786,7 @@ function renderKilnTemp(d) {
   value.textContent = reading;
   const ageMin = (Date.now() / 1000 - d.at) / 60;
   const age = ageMin >= 3 ? ` (read at ${clockTime(d.at)})` : '';
-  note.textContent = (d.hot ? 'Warning: kiln hot. Open with caution' : 'Safe to open') + age;
+  note.textContent = (d.hot ? 'Warning: Kiln hot. Open with caution' : 'Safe to open') + age;
 }
 
 async function loadKilnTemp() {
