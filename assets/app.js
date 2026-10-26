@@ -707,10 +707,9 @@ function renderKilnTemp(d) {
   }
   box.classList.add(d.hot ? 'hot' : 'cool');
   value.textContent = reading;
-  const limit = d.unit === 'F' ? '104°F' : '40°C';
   const ageMin = (Date.now() / 1000 - d.at) / 60;
   const age = ageMin >= 3 ? ` (read at ${clockTime(d.at)})` : '';
-  note.textContent = (d.hot ? `Hot: at or above ${limit}` : 'Safe to open') + age;
+  note.textContent = (d.hot ? 'Danger: kiln hot. Open with caution' : 'Safe to open') + age;
 }
 
 async function loadKilnTemp() {
