@@ -414,11 +414,23 @@ table.segment-editor input {
   font-variant-numeric: tabular-nums;
 }
 
-.kiln-temp-note {
+.kiln-temp-notes {
   margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
+}
+
+.kiln-temp-note {
   font-size: 18px;
   color: var(--text-dim);
-  text-align: right;
+}
+
+.kiln-temp-cooling {
+  font-size: 17px;
+  color: var(--text);
 }
 
 .kiln-temp.hot {

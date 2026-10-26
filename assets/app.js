@@ -358,8 +358,13 @@ function renderFiring() {
     : PHASE_LABELS[st.phase] || st.phase;
   document.getElementById('run-retry-btn').hidden = !programmingFailed || !firingProfile;
   document.getElementById('run-message').textContent = st.message || '';
+  // Once the firing is over the monitor stops reading; the home-screen
+  // reader carries on, so show its (newer) temperature and the cooling time.
+  const finished = !firingActive() && st.fired_at;
+  const live = finished && latestKilnTemp && latestKilnTemp.at > (st.ended_at || 0) ? latestKilnTemp : null;
+  const shown = live && !live.off ? live : st;
   document.getElementById('run-temp').textContent =
-    st.temp !== null && st.temp !== undefined ? `${Math.round(st.temp)}°${st.unit}` : '–';
+    shown.temp !== null && shown.temp !== undefined ? `${Math.round(shown.temp)}°${shown.unit}` : '–';
 
   let elapsedHours = null;
   if (st.fired_at) {
@@ -371,9 +376,16 @@ function renderFiring() {
   }
   const segments = firingProfile && firingProfile.segments;
   const remaining = document.getElementById('run-remaining');
+  const remainingLabel = document.getElementById('run-remaining-label');
+  remainingLabel.textContent = finished ? 'Cooling' : 'Remaining';
   if (st.phase === 'firing' && segments && elapsedHours !== null) {
     // Estimate from the profile's own timeline; the real kiln may lag it.
     remaining.textContent = `~${formatHoursMinutes(Math.max(0, totalHours(segments) - elapsedHours))}`;
+  } else if (finished && live) {
+    if (live.off) remaining.textContent = 'kiln off';
+    else if (!live.hot) remaining.textContent = 'safe to open';
+    else if (live.cool_by) remaining.textContent = `~${formatHoursMinutes(Math.max(0, (live.cool_by - Date.now() / 1000) / 3600))} to ${live.unit === 'F' ? '104°F' : '40°C'}`;
+    else remaining.textContent = 'estimating…';
   } else {
     remaining.textContent = '–';
   }
@@ -686,7 +698,25 @@ function clockTime(epochS) {
   return new Date(epochS * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+let latestKilnTemp = null;
+
+// After a firing, while a hot kiln cools on its own: how long until it's
+// below 40 °C / 104 °F (estimated by python/kiln/kiln_temp.py and revised
+// with every reading). Null when there's nothing to say.
+function coolingText(d) {
+  if (!d || !d.hot || d.off || !d.cooling) return null;
+  if (!d.cool_by) return 'Estimating cooling time…';
+  const limit = d.unit === 'F' ? '104°F' : '40°C';
+  const hours = Math.max(0, (d.cool_by - Date.now() / 1000) / 3600);
+  return `Below ${limit} in about ${formatHoursMinutes(hours)} (around ${clockTime(d.cool_by)})`;
+}
+
 function renderKilnTemp(d) {
+  latestKilnTemp = d;
+  const cooling = document.getElementById('kiln-temp-cooling');
+  const coolText = coolingText(d);
+  cooling.hidden = !coolText;
+  cooling.textContent = coolText || '';
   const box = document.getElementById('kiln-temp');
   const value = document.getElementById('kiln-temp-value');
   const note = document.getElementById('kiln-temp-note');
@@ -720,7 +750,10 @@ async function loadKilnTemp() {
   }
 }
 
-ui.on_message('kiln_temp', renderKilnTemp);
+ui.on_message('kiln_temp', (d) => {
+  renderKilnTemp(d);
+  if (firingStatus && !firingActive()) renderFiring();
+});
 
 ui.on_message('progress', (data) => {
   if (document.getElementById('screen-run').classList.contains('active')) {

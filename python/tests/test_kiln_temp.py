@@ -43,7 +43,8 @@ def test_hot_is_40c_or_104f():
 def test_in_fahrenheit():
     reader, _ = make(["  98."], celsius=False)
     reader.poll()
-    assert reader.status() | {"at": None} == {"temp": 98.0, "unit": "F", "hot": False, "at": None, "off": False}
+    status = reader.status()
+    assert (status["temp"], status["unit"], status["hot"], status["off"]) == (98.0, "F", False, False)
 
 
 def test_stands_aside_while_the_controller_is_busy():
@@ -80,3 +81,61 @@ def test_a_lit_display_without_a_temperature_isnt_off():
     reader, published = make(["Pro ."])  # in a menu
     assert reader.poll() is None
     assert reader.status()["off"] is False and published == []
+
+
+# -- cooling estimate ---------------------------------------------------------
+
+import math  # noqa: E402
+
+from kiln.kiln_temp import cooling_eta_s  # noqa: E402
+
+
+def newton(t, start=500.0, room=20.0, k=1 / 7200):
+    return room + (start - room) * math.exp(-k * t)
+
+
+def test_cooling_estimate_matches_newtons_law():
+    samples = [(t, newton(t)) for t in range(0, 20 * 60 + 1, 15)]
+    eta = cooling_eta_s(samples, room_c=20.0)
+    truth = math.log((newton(20 * 60) - 20) / (40 - 20)) * 7200  # from the last sample
+    assert abs(eta - truth) < 60  # within a minute of ~6.3 h
+
+
+def test_no_estimate_until_it_has_cooled_for_a_while():
+    short = [(t, newton(t)) for t in range(0, 5 * 60, 15)]  # 5 min
+    assert cooling_eta_s(short, room_c=20.0) is None
+    flat = [(t, 300.0) for t in range(0, 30 * 60, 15)]  # not cooling
+    assert cooling_eta_s(flat, room_c=20.0) is None
+
+
+def test_reader_estimates_after_a_firing_and_starts_over_when_busy():
+    clock = [1000.0]
+    temps = iter(newton(t) for t in range(0, 3600, 15))
+    reader, _ = make(["IdLE"])
+    reader._clock = lambda: clock[0]
+    reader._room_c = 18.0  # it read the kiln cool before the firing
+
+    reader._busy = lambda: True  # still firing: no estimate
+    reader._firing_temp = lambda: 520.0
+    reader.poll()
+    assert reader.status()["cooling"] is False and reader.status()["cool_by"] is None
+
+    reader._busy = lambda: False  # finished: the kiln cools on its own
+    reader._read = lambda: (next(temps), False)
+    reader.poll()
+    assert reader.status()["cooling"] is True and reader.status()["cool_by"] is None  # estimating
+    for _ in range(80):  # 20 min more
+        clock[0] += 15
+        reader.poll()
+    status = reader.status()
+    assert status["cool_by"] is not None
+    hours_left = (status["cool_by"] - clock[0]) / 3600
+    assert 5 < hours_left < 7.5
+
+
+def test_cool_reading_clears_the_estimate_and_sets_room_temperature():
+    reader, _ = make(["  17."])
+    reader._cooling = [(0.0, 300.0)]
+    reader.poll()
+    assert reader._room_c == 17.0 and reader._cooling == []
+    assert reader.status()["cooling"] is False
