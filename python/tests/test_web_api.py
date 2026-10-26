@@ -293,3 +293,16 @@ def test_replacing_keeps_the_old_profile_if_the_new_one_is_invalid(tmp_path):
     bad = {"id": "bad", "name": "bad", "description": "", "replace_id": "keep_me", "segments": "nonsense"}
     assert "error" in ui.call("POST", "/api/profiles", body=bad)
     assert "keep_me" in {p.id for p in library.all()}
+
+
+def test_home_screen_kiln_temperature(tmp_path, monkeypatch):
+    import kiln.kiln_temp as kt
+
+    monkeypatch.setattr(kt, "READ_WINDOW_S", 0.05)
+    sequencer = Sequencer(bridge=MockBridge(press_delay_s=0.0), vision=MockVision(script=["IdLE", "  31."]))
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    ui = FakeUI()
+    reader = register_routes(ui, sequencer, library, settings_path=tmp_path / "settings.json")
+    assert reader.poll() == 31.0  # through the real busy check, as the app runs it
+    reading = ui.call("GET", "/api/kiln_temp")
+    assert reading["temp"] == 31.0 and reading["hot"] is False and reading["off"] is False

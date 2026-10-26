@@ -105,7 +105,7 @@ def register_routes(
         with state.lock:
             if state.busy is not None:
                 return True
-        return monitor.active()
+        return monitor.active
 
     kiln_temp = KilnTemperature(
         sequencer.vision,
