@@ -45,6 +45,7 @@ HOT_C = 40.0  # at or above this the kiln isn't safe to open
 # to "Safe to open") at about 39.5 °C: the cooling estimate aims for that.
 SAFE_SHOWN_C = HOT_C - 0.5
 ROOM_PATH = Path(__file__).resolve().parent.parent / "state" / "kiln_room.json"
+ROOM_MAX_AGE_S = 24 * 3600.0  # room temperature: the lowest cool reading this recent
 IDLE_HOT_S = 15.0  # how often to read while hot (or not known yet)
 IDLE_COOL_S = 60.0  # ...and once it has cooled
 IDLE_OFF_S = 30.0  # ...and while the kiln is switched off
@@ -136,7 +137,7 @@ class KilnTemperature:
         # The kiln's last cool reading, kept across restarts (a restart
         # mid-cooling otherwise falls back on ASSUMED_ROOM_C).
         self._room_path = room_path
-        self._room_c = self._load_room()
+        self._room_c, self._room_at = self._load_room()
         self._cooling: list[tuple[float, float]] = []  # (epoch s, °C) since nothing ran
         self._lock = threading.Lock()
         self._latest = KilnTemp()
@@ -214,10 +215,15 @@ class KilnTemperature:
         cool_by = None
         with self._lock:
             if not hot:
+                # The kiln at rest: the lowest cool reading of the last day
+                # (not just any reading below 40 °C, which it passes on its
+                # way down after a firing).
                 room = max(0.0, min(temp_c, HOT_C - 5.0))
-                if abs(room - self._room_c) >= 1.0:
-                    self._save_room(room)
-                self._room_c = room
+                stale = self._room_at is None or now - self._room_at > ROOM_MAX_AGE_S
+                if room < self._room_c or stale or room == self._room_c:
+                    if room != self._room_c or stale:
+                        self._save_room(room, now)
+                    self._room_c, self._room_at = room, now
                 self._cooling = []
             elif not cooling or (self._cooling and temp_c > self._cooling[-1][1] + 2.0):
                 self._cooling = []  # firing, or heating up again: start over
@@ -236,18 +242,19 @@ class KilnTemperature:
             )
         self._emit()
 
-    def _load_room(self) -> float:
+    def _load_room(self) -> tuple[float, Optional[float]]:
         try:
-            return float(json.loads(self._room_path.read_text())["room_c"])
+            saved = json.loads(self._room_path.read_text())
+            return float(saved["room_c"]), saved.get("at")
         except (AttributeError, OSError, ValueError, KeyError, TypeError):
-            return ASSUMED_ROOM_C
+            return ASSUMED_ROOM_C, None
 
-    def _save_room(self, room_c: float) -> None:
+    def _save_room(self, room_c: float, at: float) -> None:
         if self._room_path is None:
             return
         try:
             self._room_path.parent.mkdir(parents=True, exist_ok=True)
-            self._room_path.write_text(json.dumps({"room_c": room_c}))
+            self._room_path.write_text(json.dumps({"room_c": room_c, "at": at}))
         except OSError:
             log.warning("couldn't save the room temperature to %s", self._room_path)
 

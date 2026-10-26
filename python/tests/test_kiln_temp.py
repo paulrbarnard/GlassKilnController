@@ -182,3 +182,18 @@ def test_room_temperature_survives_a_restart(tmp_path):
         busy=lambda: False, firing_temp=lambda: None, room_path=path,
     )
     assert again._room_c == 17.0
+
+
+def test_room_temperature_is_the_lowest_recent_cool_reading():
+    clock = [0.0]
+    reader, _ = make(["  17."])
+    reader._clock = lambda: clock[0]
+    reader.poll()
+    assert reader._room_c == 17.0
+    reader._vision.script, reader._vision._index = ["  38."], 0  # passing 38 °C after a firing
+    clock[0] += 3600
+    reader.poll()
+    assert reader._room_c == 17.0  # still the kiln at rest
+    clock[0] += 25 * 3600  # a day later the old reading has gone stale
+    reader.poll()
+    assert reader._room_c == 35.0  # (capped below 40)
