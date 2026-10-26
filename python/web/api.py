@@ -103,6 +103,8 @@ def register_routes(
     def publish_firing(status: dict) -> None:
         ui.send_message("firing", status)
         previous, last_phase["phase"] = last_phase["phase"], status.get("phase")
+        if status.get("phase") == "firing" and previous != "firing":
+            push_firing_start(status)
         if previous in ("programming", "firing", "stopping") and status.get("phase") not in (
             "programming", "firing", "stopping", previous
         ):
@@ -119,6 +121,25 @@ def register_routes(
             if state.busy is not None:
                 return True
         return monitor.active
+
+    def push_firing_start(status: dict) -> None:
+        """A push when the controller shows ON: programming and the slot
+        check have passed and the kiln is firing."""
+
+        name = status.get("profile_name") or "the firing"
+        started = status.get("fired_at") or time.time()
+        temp = status.get("temp")
+        at = time.strftime("%H:%M", time.localtime(started))
+        message = f"Started {at}" + ("" if temp is None else f" at {round(temp)}°{status.get('unit', 'C')}") + "."
+        try:
+            profile = library.get(status.get("profile_id"))
+            start_f = None if temp is None else (temp if status.get("unit") == "F" else temp * 9 / 5 + 32)
+            hours = profile_hours(profile.resolved_segments(), start_f)
+            finish = time.strftime("%H:%M", time.localtime(started + hours * 3600))
+            message += f" Expected to finish about {finish} ({int(hours)}h {round(hours % 1 * 60):02d}m)."
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            pass  # no profile to go by: just say it started
+        notifier.send(f"Firing started: {name}", message)
 
     def push_firing_end(status: dict) -> None:
         """A push when a firing ends: how, when, and whether it's safe yet."""
@@ -617,6 +638,21 @@ def _summary(profile: Profile) -> dict:
     if profile.kind is ProfileKind.RAMP_HOLD:
         d["pro_slot"] = profile.pro_slot
     return d
+
+
+def profile_hours(segments, start_f: float | None = None) -> float:
+    """How long the segments take on the kiln's own timeline: each ramp at
+    its rate from the previous temperature (the kiln's, to begin with; room
+    temperature if unknown), plus the holds. The kiln may lag it."""
+
+    hours = 0.0
+    temp = 68.0 if start_f is None else start_f
+    for seg in segments:
+        if seg.rate_f_per_hr:
+            hours += abs(seg.target_temp_f - temp) / seg.rate_f_per_hr
+        hours += (seg.hold_minutes or 0) / 60.0
+        temp = seg.target_temp_f
+    return hours
 
 
 def _detail(profile: Profile) -> dict:

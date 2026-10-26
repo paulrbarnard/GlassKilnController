@@ -75,7 +75,13 @@ def test_firing_end_pushes(tmp_path, monkeypatch):
     from kiln.firing import FiringMonitor
 
     monitor = next(o for o in gc.get_objects() if isinstance(o, FiringMonitor) and o._publish.__name__ == "publish_firing")
-    base = {"profile_name": "Full fuse", "unit": "C", "fired_at": 1.0, "ended_at": 1793022095.0, "message": ""}
+    base = {"profile_name": "Full fuse", "profile_id": "full_fuse_slow", "unit": "C", "fired_at": 1.0, "ended_at": 1793022095.0, "message": ""}
+    monitor._publish({**base, "phase": "programming", "temp": None})
+    monitor._publish({**base, "phase": "firing", "temp": 21})
+    monitor._publish({**base, "phase": "firing", "temp": 300})  # still firing: no second push
+    started = [s for s in sent if s[0].startswith("Firing started")]
+    assert len(started) == 1 and "at 21°C" in started[0][1] and "Expected to finish about" in started[0][1]
+    sent.clear()
     monitor._publish({**base, "phase": "firing", "temp": 790})
     monitor._publish({**base, "phase": "complete", "temp": 790})
     monitor._publish({**base, "phase": "complete", "temp": 780})  # repeated status: no second push
@@ -85,3 +91,12 @@ def test_firing_end_pushes(tmp_path, monkeypatch):
     monitor._publish({**base, "phase": "programming", "fired_at": None, "temp": None})
     monitor._publish({**base, "phase": "error", "fired_at": None, "temp": None, "message": "couldn't set the value"})
     assert sent[-1][0] == "Kiln programming failed" and sent[-1][2] == 1
+
+
+def test_profile_hours_counts_ramps_from_the_kiln_and_holds():
+    from kiln.protocol import RampHoldSegment
+    from web.api import profile_hours
+
+    segments = [RampHoldSegment(rate_f_per_hr=300, target_temp_f=1000, hold_minutes=30),
+                RampHoldSegment(rate_f_per_hr=500, target_temp_f=500, hold_minutes=0)]
+    assert profile_hours(segments, start_f=100) == 900 / 300 + 0.5 + 500 / 500
