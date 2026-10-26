@@ -38,8 +38,48 @@ if (VIEW_ONLY) {
   window.confirm = () => false;
 }
 
+// The status view's headline: what the kiln and the app are doing.
+let viewBusy = null; // GET /api/status busy: a controller action other than a firing
+
+function renderViewStatus() {
+  if (!VIEW_ONLY) return;
+  const el = document.getElementById('view-status');
+  const st = firingStatus;
+  let text;
+  let active = true;
+  if (firingActive()) {
+    text = `${PHASE_LABELS[st.phase] || st.phase}: ${st.profile_name || ''}`;
+  } else if (viewBusy) {
+    text = `Busy: ${viewBusy}`;
+  } else if (latestKilnTemp && latestKilnTemp.off) {
+    text = 'Kiln off';
+    active = false;
+  } else {
+    active = false;
+    text = 'Idle';
+    if (st && st.ended_at && st.profile_name) {
+      const how = (PHASE_LABELS[st.phase] || st.phase).toLowerCase();
+      text += ` · last firing: ${st.profile_name}, ${how} at ${clockTime(st.ended_at)}`;
+    }
+  }
+  el.textContent = text;
+  el.classList.toggle('active', active);
+}
+
+async function refreshViewBusy() {
+  try {
+    viewBusy = (await api('GET', '/api/status')).busy;
+  } catch (e) {
+    viewBusy = null;
+  }
+  renderViewStatus();
+}
+
+if (VIEW_ONLY) setInterval(refreshViewBusy, 10000);
+
 function viewOnlyScreen() {
   if (!VIEW_ONLY) return;
+  renderViewStatus();
   const st = firingStatus;
   const finishedHot = st && st.fired_at && !firingActive() && latestKilnTemp && latestKilnTemp.hot && !latestKilnTemp.off;
   const want = firingActive() || finishedHot ? 'screen-run' : 'screen-home';
@@ -68,6 +108,7 @@ function slugify(name) {
 async function refreshBridgeStatus() {
   try {
     const status = await api('GET', '/api/status');
+    viewBusy = status.busy;
     const text = `Bridge: ${status.bridge_ok ? 'connected' : 'unreachable'}`;
     document.getElementById('bridge-status').textContent = text;
     document.getElementById('settings-bridge-status').textContent = text;

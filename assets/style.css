@@ -782,8 +782,20 @@ table.segment-editor input {
 
 /* -- Read-only status view (?view, see VIEW_ONLY in app.js) --------------------- */
 
-.view-only-note {
+.view-only-note,
+.view-status {
   display: none;
+}
+
+body.view-only .view-status {
+  display: block;
+  font-size: 28px;
+  font-weight: bold;
+  margin: 4px 0;
+}
+
+body.view-only .view-status.active {
+  color: var(--accent);
 }
 
 body.view-only .view-only-note {

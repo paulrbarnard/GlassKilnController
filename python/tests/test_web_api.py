@@ -306,3 +306,8 @@ def test_home_screen_kiln_temperature(tmp_path, monkeypatch):
     assert reader.poll() == 31.0  # through the real busy check, as the app runs it
     reading = ui.call("GET", "/api/kiln_temp")
     assert reading["temp"] == 31.0 and reading["hot"] is False and reading["off"] is False
+
+
+def test_status_says_what_the_controller_is_busy_with(tmp_path):
+    ui, *_ = make_registered(tmp_path)
+    assert ui.call("GET", "/api/status")["busy"] is None

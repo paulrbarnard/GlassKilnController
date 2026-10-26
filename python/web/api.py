@@ -482,7 +482,9 @@ def register_routes(
         return run_exclusive("adding temperature", sequencer.add_temperature)
 
     def status():
-        return {"bridge_ok": sequencer.bridge.ping(), "running": state.running}
+        # busy: what the app is doing at the controller, if anything (for
+        # the status view's "Busy: ..." line).
+        return {"bridge_ok": sequencer.bridge.ping(), "running": state.running, "busy": state.busy}
 
     # -- settings (OPTIONS mode, p.22) -------------------------------------
 
