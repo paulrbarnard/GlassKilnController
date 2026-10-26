@@ -373,6 +373,7 @@ def _editing(monkeypatch, value, scale=1, miss=(), double=()):
 
     fake = _ValueEditor(value, scale, miss, double)
     monkeypatch.setattr(seq, "QUIET_BEFORE_TAP_S", 0.0)
+    monkeypatch.setattr(seq, "QUIET_AFTER_HOLD_S", 0.0)
     monkeypatch.setattr(seq, "SETTLE_GAP_S", 0.0)
     monkeypatch.setattr(seq, "MENU_CHANGE_TIMEOUT_S", 0.0)
     monkeypatch.setattr(seq.time, "monotonic", fake.clock)

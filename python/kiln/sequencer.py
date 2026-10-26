@@ -72,6 +72,10 @@ TAP_LIMIT = 12  # changes up to this many steps are tapped, not scrolled
 # were single steps. So taps go one at a time, each checked, each this long
 # after the last UP/DOWN press.
 QUIET_BEFORE_TAP_S = 2.0
+# ...and after a hold it lasts longer: in a write on the kiln (2026-10-26)
+# taps 2-4 s after a hold often stepped 2 (either key), while those 5 s or
+# more after were single.
+QUIET_AFTER_HOLD_S = 5.0
 # Closed-loop scroll holds (_hold_towards): how far back to measure the
 # scroll speed, how much further the value runs after release is asked for
 # (camera, Bridge and button).
@@ -737,8 +741,8 @@ class Sequencer:
         """Bring the value being edited to ``target``. Big changes use a held
         UP/DOWN, watched and released just short (the controller waits ~2 s,
         then scrolls faster and faster); the last few steps are single taps,
-        each QUIET_BEFORE_TAP_S after the last UP/DOWN press and checked
-        before the next. The GM LT itself sometimes misses a press or counts
+        each QUIET_BEFORE_TAP_S after the last press (QUIET_AFTER_HOLD_S
+        after a hold) and checked before the next. The GM LT itself sometimes misses a press or counts
         one two or three times (seen when programming it by hand too, and
         more often when presses come close together), so a tap that lands
         off target, or doesn't move the value at all, is simply corrected
@@ -747,6 +751,7 @@ class Sequencer:
 
         current = self._value(scale)
         last_press: Optional[float] = None  # when UP/DOWN were last let go
+        after_hold = False  # the last UP/DOWN press was a hold
         for _ in range(max_steps):
             self._check_abort()
             delta = target - current
@@ -757,6 +762,7 @@ class Sequencer:
                 before = current
                 released_at = self._hold_towards(key, target, current, scale)
                 last_press = time.monotonic()
+                after_hold = True
                 current = self._settled_value(scale)
                 log.info(
                     "held %s: %d -> %d (released at %s, target %d)",
@@ -764,9 +770,11 @@ class Sequencer:
                 )
                 continue
             if last_press is not None:
-                time.sleep(max(0.0, QUIET_BEFORE_TAP_S - (time.monotonic() - last_press)))
+                quiet = QUIET_AFTER_HOLD_S if after_hold else QUIET_BEFORE_TAP_S
+                time.sleep(max(0.0, quiet - (time.monotonic() - last_press)))
             self._press(key)
             last_press = time.monotonic()
+            after_hold = False
             before = current
             # The display takes a moment to show the taps; wait for the
             # value to move, then for it to settle, before judging them.
