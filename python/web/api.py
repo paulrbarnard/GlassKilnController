@@ -30,6 +30,8 @@ from typing import Callable, Optional, Protocol
 
 from kiln.firing import FiringMonitor
 from kiln.kiln_temp import COOLING_LOG_DIR, ROOM_PATH, KilnTemperature
+from kiln.notify import CONFIG_PATH as NOTIFY_PATH
+from kiln.notify import Notifier
 from kiln.profiles import Profile, ProfileKind, ProfileLibrary
 from kiln.programs import same_segments
 from kiln.sequencer import ProgramMismatch, Sequencer, SequenceAborted, SequenceError
@@ -95,9 +97,20 @@ def register_routes(
 
     sequencer.on_progress = push_progress
 
+    notifier = Notifier(NOTIFY_PATH)
+    last_phase = {"phase": None}
+
+    def publish_firing(status: dict) -> None:
+        ui.send_message("firing", status)
+        previous, last_phase["phase"] = last_phase["phase"], status.get("phase")
+        if previous in ("programming", "firing", "stopping") and status.get("phase") not in (
+            "programming", "firing", "stopping", previous
+        ):
+            push_firing_end(status)
+
     monitor = FiringMonitor(
         sequencer.vision,
-        publish=lambda status: ui.send_message("firing", status),
+        publish=publish_firing,
         celsius=lambda: settings.celsius,
     )
 
@@ -107,6 +120,39 @@ def register_routes(
                 return True
         return monitor.active
 
+    def push_firing_end(status: dict) -> None:
+        """A push when a firing ends: how, when, and whether it's safe yet."""
+
+        name = status.get("profile_name") or "the firing"
+        at = time.strftime("%H:%M", time.localtime(status.get("ended_at") or time.time()))
+        temp = status.get("temp")
+        reading = "" if temp is None else f", kiln {round(temp)}°{status.get('unit', 'C')}"
+        phase = status.get("phase")
+        if phase == "error" and not status.get("fired_at"):
+            notifier.send("Kiln programming failed", f"{name}: {status.get('message', '')}", priority=1)
+            return
+        titles = {
+            "complete": f"Firing complete: {name}",
+            "stopped": f"Firing stopped: {name}",
+            "ended": f"Program ended: {name}",
+            "error": f"Kiln error: {name}",
+        }
+        hot = temp is not None and kiln_temp_hot(temp, status.get("unit", "C"))
+        message = f"Finished at {at}{reading}." + (" Not safe to open yet." if hot else " Safe to open.")
+        if phase == "error":
+            message = f"{status.get('message', '')} ({at}{reading})"
+        notifier.send(titles.get(phase, f"Firing finished: {name}"), message, priority=1 if phase == "error" else 0)
+
+    def kiln_temp_hot(temp: float, unit: str) -> bool:
+        from kiln.kiln_temp import is_hot
+
+        return is_hot(float(temp), unit != "F")
+
+    def push_safe(reading: dict) -> None:
+        temp, unit = reading.get("temp"), reading.get("unit", "C")
+        at = time.strftime("%H:%M", time.localtime(reading.get("at") or time.time()))
+        notifier.send("Kiln safe to open", f"{round(temp)}°{unit} at {at}")
+
     kiln_temp = KilnTemperature(
         sequencer.vision,
         publish=lambda reading: ui.send_message("kiln_temp", reading),
@@ -115,6 +161,7 @@ def register_routes(
         firing_temp=lambda: monitor.status().get("temp"),
         room_path=ROOM_PATH,
         cooling_log_dir=COOLING_LOG_DIR,
+        on_safe=push_safe,
     )
 
     def run_in_background(task: Callable[[], None]) -> None:

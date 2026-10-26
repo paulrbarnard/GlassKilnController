@@ -132,6 +132,7 @@ class KilnTemperature:
         clock: Callable[[], float] = time.time,
         room_path: Optional[Path] = None,
         cooling_log_dir: Optional[Path] = None,
+        on_safe: Optional[Callable[[dict], None]] = None,
     ):
         self._vision = vision
         self._publish = publish
@@ -144,6 +145,9 @@ class KilnTemperature:
         self._room_path = room_path
         self._room_c, self._room_at = self._load_room()
         self._cooling_log_dir = cooling_log_dir
+        # Called with the reading when a hot kiln (not firing) first reads
+        # below HOT_C: the "safe to open" push (kiln/notify.py).
+        self._on_safe = on_safe
         self._cooling_log: Optional[Path] = None  # the current cooling's CSV
         self._cooling: list[tuple[float, float]] = []  # (epoch s, °C) since nothing ran
         self._lock = threading.Lock()
@@ -221,6 +225,7 @@ class KilnTemperature:
         hot = temp_c >= HOT_C
         cool_by = None
         with self._lock:
+            just_safe = cooling and not hot and self._latest.hot is True
             if not hot:
                 # The kiln at rest: the lowest cool reading of the last day
                 # (not just any reading below 40 °C, which it passes on its
@@ -251,6 +256,11 @@ class KilnTemperature:
                 cooling=hot and cooling,
             )
         self._emit()
+        if just_safe and self._on_safe:
+            try:
+                self._on_safe(self.status())
+            except Exception:  # noqa: BLE001 - a failed push mustn't stop the readings
+                log.exception("kiln temperature: safe-to-open callback failed")
 
     def _log_cooling(self, now: float, temp_c: float, cool_by: Optional[float]) -> None:
         if self._cooling_log_dir is None:
