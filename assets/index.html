@@ -46,8 +46,11 @@
     <section id="screen-profile" class="screen">
       <div class="row space-between">
         <button id="profile-back-btn">&larr; Back</button>
-        <button id="profile-edit-btn">Edit</button>
-        <button id="profile-duplicate-btn">Duplicate as Custom</button>
+        <div class="row">
+          <button id="profile-delete-btn" class="danger">Delete</button>
+          <button id="profile-edit-btn">Edit</button>
+          <button id="profile-duplicate-btn">Duplicate as Custom</button>
+        </div>
       </div>
       <h2 id="profile-title"></h2>
       <div class="diagram-wrap"><canvas id="profile-diagram"></canvas></div>

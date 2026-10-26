@@ -222,6 +222,7 @@ async function openProfile(id, fromScreen) {
   // PRO-mode profile from this preset's numbers.
   const isReprogrammable = profile.kind === 'ramp_hold';
   document.getElementById('profile-edit-btn').style.visibility = isReprogrammable ? 'visible' : 'hidden';
+  document.getElementById('profile-delete-btn').hidden = !isReprogrammable;
   document.getElementById('profile-duplicate-btn').style.visibility = isReprogrammable ? 'hidden' : 'visible';
   document.getElementById('mgf-section').hidden = isReprogrammable;
   document.getElementById('slot-section').hidden = !isReprogrammable;
@@ -511,7 +512,21 @@ function editorAddRow(segF) {
   tbody.appendChild(row);
 }
 
-function openNewProfileEditor() {
+// The Custom screen holds MAX_USER_PROFILES and no more (no scrolling or
+// extra pages), so a new profile needs a free place. Says so up front
+// rather than after the editor has been filled in.
+async function customProfilesFull() {
+  const { profiles } = await api('GET', '/api/profiles');
+  if (profiles.filter((p) => p.kind === 'ramp_hold').length < MAX_USER_PROFILES) return false;
+  alert(
+    `There are already ${MAX_USER_PROFILES} custom profiles, the most the app keeps. ` +
+      'Open one you no longer use and delete it first.'
+  );
+  return true;
+}
+
+async function openNewProfileEditor() {
+  if (await customProfilesFull()) return;
   editingProfileId = null;
   document.getElementById('editor-name').value = '';
   document.getElementById('editor-description').value = '';
@@ -542,11 +557,12 @@ function openEditProfileEditor(profile) {
   });
 }
 
-function openDuplicateProfileEditor(profile) {
+async function openDuplicateProfileEditor(profile) {
   // For GlassFire presets (Edit is hidden for these — see openProfile()):
   // starts a brand new, separate PRO-mode profile pre-filled with this
   // preset's current numbers. Saving creates a new id via slugify(name),
   // it never touches the original preset.
+  if (await customProfilesFull()) return;
   editingProfileId = null;
   document.getElementById('editor-name').value = `${profile.name} (Custom)`;
   document.getElementById('editor-description').value = profile.description;
@@ -556,6 +572,24 @@ function openDuplicateProfileEditor(profile) {
   requestAnimationFrame(() => {
     editorRedraw();
   });
+}
+
+async function deleteProfile() {
+  const profile = currentProfile;
+  if (!profile || profile.kind !== 'ramp_hold') return;
+  const onKiln = profile.kiln_slot
+    ? ` It stays in kiln slot ${profile.kiln_slot} until that slot is needed for another profile.`
+    : '';
+  if (!confirm(`Delete “${profile.name}” from the app?${onKiln}`)) return;
+  try {
+    await api('DELETE', `/api/profiles/${profile.id}`);
+  } catch (e) {
+    alert(`Could not delete: ${e.message}`);
+    return;
+  }
+  currentProfile = null;
+  showToast(`Deleted “${profile.name}”.`);
+  openCustom();
 }
 
 async function saveProfile() {
@@ -691,6 +725,7 @@ document.getElementById('profile-edit-btn').addEventListener('click', () => {
 document.getElementById('profile-duplicate-btn').addEventListener('click', () => {
   if (currentProfile) openDuplicateProfileEditor(currentProfile);
 });
+document.getElementById('profile-delete-btn').addEventListener('click', deleteProfile);
 document.getElementById('start-firing-btn').addEventListener('click', startFiring);
 document.getElementById('mgf-save-btn').addEventListener('click', saveMgfOverride);
 document.getElementById('mgf-clear-btn').addEventListener('click', clearMgfOverride);

@@ -87,8 +87,9 @@ October 2026:
 - **Kiln programs**: the GM LT's five PRO slots can be read, shown as
   diagrams, imported as app profiles, and written from app profiles. Every
   write is read back and only counts if it matches.
-- **Slot management**: the app maps its custom profiles onto the five PRO
-  slots by itself. A profile that isn't on the kiln
+- **Slot management**: the app keeps up to 12 custom profiles (one screen,
+  the factory Casting program included; delete one to make room) and maps
+  them onto the five PRO slots by itself. A profile that isn't on the kiln
   replaces the least-used one (unknown, then stale, then least fired, then
   least recently fired), so reprogramming is rare. The slot is checked
   before every start (`python/kiln/slots.py`).
@@ -103,9 +104,8 @@ October 2026:
   Try again). If the controller can't be brought back, the app asks for the
   kiln to be power-cycled.
 
-Not yet done: °F value entry on the kiln, the MGF override flow, a cap of
-12 custom profiles (planned, not enforced yet), and the switch to the DSI
-display (enabling DSI in the device tree currently breaks
+Not yet done: °F value entry on the kiln, the MGF override flow, and the
+switch to the DSI display (enabling DSI in the device tree currently breaks
 the camera's, so it needs a plan). See `docs/architecture.md` for what was
 confirmed on hardware and the dead ends: PySide6 doesn't work in the App Lab
 container, and this board's PWM pins are fixed at 500 Hz, so the `Servo`
@@ -133,7 +133,7 @@ pip install -r requirements.txt
 python main.py --mock-bridge --mock-vision
 ```
 
-Real automated coverage of both layers lives in `python/tests/` (123 tests,
+Real automated coverage of both layers lives in `python/tests/` (127 tests,
 run with `pytest` from `python/`) — that's what to extend, not manual runs
 of `main.py`.
 

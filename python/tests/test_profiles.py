@@ -146,7 +146,7 @@ def test_save_user_profile_enforces_max_saved_custom_profiles(tmp_path):
     library = ProfileLibrary(library_dir=tmp_path, user_dir=tmp_path)
     for i in range(MAX_USER_PROFILES):
         library.save_user_profile(make_ramp_hold(f"p{i}"))
-    assert library.user_ramp_hold_count() == MAX_USER_PROFILES
+    assert library.custom_count() == MAX_USER_PROFILES
 
     try:
         library.save_user_profile(make_ramp_hold("one_too_many"))
@@ -171,3 +171,33 @@ def test_set_mgf_override_persists_across_reload(tmp_path):
     assert segments[1].hold_minutes == 25
     # Only the process segment changed — the fixed ramp segments didn't.
     assert segments[0].target_temp_f == 300
+
+
+def test_the_built_in_casting_profile_counts_towards_the_cap(tmp_path):
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    assert library.custom_count() == 1  # Casting is just another custom profile
+    for i in range(MAX_USER_PROFILES - 1):
+        library.save_user_profile(make_ramp_hold(f"p{i}"))
+    try:
+        library.save_user_profile(make_ramp_hold("one_too_many"))
+        assert False, "expected ValueError at the cap"
+    except ValueError as exc:
+        assert "12 custom profiles" in str(exc)
+    # Editing one that exists is still fine at the cap.
+    library.save_user_profile(make_ramp_hold("p0"))
+
+
+def test_deleting_casting_removes_it_for_good(tmp_path):
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    library.delete_user_profile("casting_factory")
+    assert "casting_factory" not in {p.id for p in library.all()}
+    reloaded = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    assert "casting_factory" not in {p.id for p in reloaded.all()}
+    assert reloaded.custom_count() == 0
+
+
+def test_deleting_an_edited_casting_also_removes_it(tmp_path):
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    library.set_active_slot("casting_factory", None)  # writes a user copy
+    library.delete_user_profile("casting_factory")
+    assert "casting_factory" not in {p.id for p in library.all()}

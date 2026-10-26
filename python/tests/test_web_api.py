@@ -147,11 +147,19 @@ def test_set_mgf_override_via_api(tmp_path):
 
 def test_save_profile_rejects_beyond_cap(tmp_path):
     ui, *_ = make_registered(tmp_path)
-    for i in range(MAX_USER_PROFILES):
+    for i in range(MAX_USER_PROFILES - 1):  # the built-in Casting is the 12th
         result = make_custom(ui, f"p{i}")
         assert "error" not in result
     result = make_custom(ui, "one_too_many")
     assert "error" in result
+
+
+def test_deleting_a_custom_profile_frees_a_place(tmp_path):
+    ui, *_ = make_registered(tmp_path)
+    for i in range(MAX_USER_PROFILES - 1):
+        make_custom(ui, f"p{i}")
+    assert ui.call("DELETE", "/api/profiles/{profile_id}", profile_id="casting_factory") == {"ok": True}
+    assert "error" not in make_custom(ui, "now_it_fits")
 
 
 def _wait_for_threads(seconds=2.0):

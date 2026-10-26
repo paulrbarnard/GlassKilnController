@@ -187,12 +187,21 @@ class ProfileLibrary:
             if not directory.exists():
                 continue
             for path in sorted(directory.glob("*.json")):
+                if directory == self.library_dir and self._tombstone(path.stem).exists():
+                    continue  # a built-in custom profile the user deleted
                 try:
                     profile = load_profile(path)
                 except (ValueError, KeyError) as exc:
                     raise ValueError(f"invalid profile file {path}: {exc}") from exc
                 self._profiles[profile.id] = profile
         return self
+
+    def _tombstone(self, profile_id: str) -> Path:
+        """Marks a library custom profile (the factory Casting program) as
+        deleted: it's just another PRO profile to the user, so deleting it
+        mustn't bring the library copy back."""
+
+        return self.user_dir / f"{profile_id}.deleted"
 
     def all(self) -> list[Profile]:
         return list(self._profiles.values())
@@ -203,26 +212,26 @@ class ProfileLibrary:
     def _persist_as_user(self, profile: Profile) -> Path:
         profile.source = "user"
         path = save_profile(profile, self.user_dir)
+        self._tombstone(profile.id).unlink(missing_ok=True)
         self._profiles[profile.id] = profile
         return path
 
-    def user_ramp_hold_count(self) -> int:
-        return sum(
-            1
-            for p in self._profiles.values()
-            if p.source == "user" and p.kind is ProfileKind.RAMP_HOLD
-        )
+    def custom_count(self) -> int:
+        """Custom (Ramp & Hold) profiles, built-in or not: the Custom
+        screen shows them all, MAX_USER_PROFILES to a screen."""
+
+        return sum(1 for p in self._profiles.values() if p.kind is ProfileKind.RAMP_HOLD)
 
     def save_user_profile(self, profile: Profile) -> Path:
         is_new = profile.id not in self._profiles
         if (
             is_new
             and profile.kind is ProfileKind.RAMP_HOLD
-            and self.user_ramp_hold_count() >= MAX_USER_PROFILES
+            and self.custom_count() >= MAX_USER_PROFILES
         ):
             raise ValueError(
-                f"already have {MAX_USER_PROFILES} saved custom profiles "
-                "(the most this app keeps) — delete one before adding another"
+                f"there are already {MAX_USER_PROFILES} custom profiles, the most the app "
+                "keeps. Delete one you don't use first"
             )
         return self._persist_as_user(profile)
 
@@ -290,11 +299,19 @@ class ProfileLibrary:
         return profile
 
     def delete_user_profile(self, profile_id: str) -> None:
+        """Delete a custom profile, or drop the user's changes to a built-in
+        GlassFire one. Custom profiles are deleted outright, the built-in
+        Casting program included."""
+
         profile = self._profiles.get(profile_id)
-        if profile is None or profile.source != "user":
+        is_custom = profile is not None and profile.kind is ProfileKind.RAMP_HOLD
+        if profile is None or (profile.source != "user" and not is_custom):
             raise ValueError(f"no user profile named {profile_id!r}")
         path = self.user_dir / f"{profile_id}.json"
         path.unlink(missing_ok=True)
+        if is_custom and (self.library_dir / f"{profile_id}.json").exists():
+            self.user_dir.mkdir(parents=True, exist_ok=True)
+            self._tombstone(profile_id).touch()
         # Reload rather than just dropping the dict entry: if this id also
         # exists under library_dir (i.e. this was an edited factory
         # profile "shadowing" it — see Profile editing in web/api.py), the
