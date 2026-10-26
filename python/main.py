@@ -144,7 +144,8 @@ def main() -> int:
     from arduino.app_utils import App  # type: ignore
 
     ui = WebUI()
-    register_routes(ui, sequencer, library, settings)
+    kiln_temp = register_routes(ui, sequencer, library, settings)
+    kiln_temp.start()  # home-screen kiln temperature (kiln/kiln_temp.py)
     App.run()  # blocks until the app is stopped
     return 0
 

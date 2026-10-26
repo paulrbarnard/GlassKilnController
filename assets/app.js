@@ -182,6 +182,7 @@ async function openCustom() {
 function goHome() {
   showScreen('screen-home');
   refreshBridgeStatus();
+  loadKilnTemp();
 }
 
 // -- Profile detail screen ---------------------------------------------------
@@ -676,6 +677,52 @@ function showToast(message) {
   toastTimer = setTimeout(() => (toast.hidden = true), 6000);
 }
 
+// -- Home: kiln temperature ----------------------------------------------------
+// Read from the controller's display by the app (python/kiln/kiln_temp.py)
+// whenever nothing else is using it. Red at or above 40 °C (104 °F), green
+// below; "Off" when the display is dark. Shown in the controller's unit.
+
+function clockTime(epochS) {
+  return new Date(epochS * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function renderKilnTemp(d) {
+  const box = document.getElementById('kiln-temp');
+  const value = document.getElementById('kiln-temp-value');
+  const note = document.getElementById('kiln-temp-note');
+  const reading = d && d.temp !== null && d.temp !== undefined ? `${Math.round(d.temp)}°${d.unit}` : null;
+  box.className = 'kiln-temp';
+  if (d && d.off) {
+    box.classList.add('off');
+    value.textContent = 'Off';
+    note.textContent = reading ? `Last read ${reading} at ${clockTime(d.at)}` : 'The kiln is switched off';
+    if (reading && d.hot) box.classList.add('hot');
+    return;
+  }
+  if (!reading) {
+    box.classList.add('unknown');
+    value.textContent = '…';
+    note.textContent = 'Reading the kiln temperature';
+    return;
+  }
+  box.classList.add(d.hot ? 'hot' : 'cool');
+  value.textContent = reading;
+  const limit = d.unit === 'F' ? '104°F' : '40°C';
+  const ageMin = (Date.now() / 1000 - d.at) / 60;
+  const age = ageMin >= 3 ? ` (read at ${clockTime(d.at)})` : '';
+  note.textContent = (d.hot ? `Hot: at or above ${limit}` : `Below ${limit}`) + age;
+}
+
+async function loadKilnTemp() {
+  try {
+    renderKilnTemp(await api('GET', '/api/kiln_temp'));
+  } catch (e) {
+    // Keep whatever is showing; the next pushed reading will update it.
+  }
+}
+
+ui.on_message('kiln_temp', renderKilnTemp);
+
 ui.on_message('progress', (data) => {
   if (document.getElementById('screen-run').classList.contains('active')) {
     appendLog(data.message);
@@ -1047,7 +1094,10 @@ document.getElementById('add-temp-icon').innerHTML = svgIcon('thermometer', 18);
 document.getElementById('settings-header-icon').innerHTML = svgIcon('gear', 22);
 document.getElementById('mgf-icon').innerHTML = svgIcon('wrench', 18);
 
+document.getElementById('kiln-temp-icon').innerHTML = svgIcon('thermometer', 30);
+
 goHome();
+loadKilnTemp();
 loadSettings();
 loadFiring();
 // http://<board>:7000/#kiln opens the Kiln programs screen directly (for

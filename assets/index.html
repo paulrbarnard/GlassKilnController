@@ -12,6 +12,14 @@
       <h1><span id="home-icon"></span> Glass Kiln Controller</h1>
       <p class="status-line" id="bridge-status">Bridge: unknown</p>
       <button class="firing-banner" id="firing-banner" hidden>Firing in progress</button>
+      <!-- The module covers the kiln's own display, so this is the only way
+           to see whether the kiln has cooled enough to open -->
+      <div class="kiln-temp unknown" id="kiln-temp">
+        <span id="kiln-temp-icon"></span>
+        <span class="kiln-temp-label">Kiln</span>
+        <span class="kiln-temp-value" id="kiln-temp-value">…</span>
+        <span class="kiln-temp-note" id="kiln-temp-note">Reading the kiln temperature</span>
+      </div>
       <div class="nav-stack">
         <button class="primary" id="nav-standard-btn">Standard Glass Firing</button>
         <button class="primary" id="nav-custom-btn">Custom Profiles</button>

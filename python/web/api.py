@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol
 
 from kiln.firing import FiringMonitor
+from kiln.kiln_temp import KilnTemperature
 from kiln.profiles import Profile, ProfileKind, ProfileLibrary
 from kiln.programs import same_segments
 from kiln.sequencer import ProgramMismatch, Sequencer, SequenceAborted, SequenceError
@@ -67,7 +68,11 @@ def register_routes(
     settings: AppSettings | None = None,
     settings_path=SETTINGS_PATH,
     kiln_slots: KilnSlots | None = None,
-) -> None:
+) -> KilnTemperature:
+    """Register every route on ``ui``. Returns the kiln-temperature reader
+    for the home screen, for the caller to start (main.py) once the app is
+    up; tests leave it stopped so it can't take their scripted readings."""
+
     state = RunState()
     settings = settings or AppSettings()
     kiln_slots = kiln_slots if kiln_slots is not None else KilnSlots.load(SLOTS_PATH)
@@ -94,6 +99,20 @@ def register_routes(
         sequencer.vision,
         publish=lambda status: ui.send_message("firing", status),
         celsius=lambda: settings.celsius,
+    )
+
+    def controller_busy() -> bool:
+        with state.lock:
+            if state.busy is not None:
+                return True
+        return monitor.active()
+
+    kiln_temp = KilnTemperature(
+        sequencer.vision,
+        publish=lambda reading: ui.send_message("kiln_temp", reading),
+        celsius=lambda: settings.celsius,
+        busy=controller_busy,
+        firing_temp=lambda: monitor.status().get("temp"),
     )
 
     def run_in_background(task: Callable[[], None]) -> None:
@@ -521,11 +540,13 @@ def register_routes(
     ui.expose_api("POST", "/api/add_time", add_time)
     ui.expose_api("POST", "/api/add_temp", add_temperature)
     ui.expose_api("GET", "/api/status", status)
+    ui.expose_api("GET", "/api/kiln_temp", kiln_temp.status)
     ui.expose_api("POST", "/api/settings/mgf", toggle_mgf)
     ui.expose_api("GET", "/api/settings", get_settings)
     ui.expose_api("GET", "/api/settings/controller_unit", controller_unit)
     ui.expose_api("POST", "/api/settings/scale", set_temperature_scale)
     ui.expose_api("POST", "/api/settings/reset", factory_reset)
+    return kiln_temp
 
 
 def _summary(profile: Profile) -> dict:
