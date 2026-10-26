@@ -99,6 +99,19 @@ October 2026:
   presses come close together, so taps are 2 s apart and the first comes
   5 s after a hold; anything that still lands off target is corrected (see
   `python/kiln/sequencer.py`). A 4-segment program takes about 4 minutes.
+- **Kiln temperature**: the module covers the kiln's display, so the home
+  screen shows the temperature read from it whenever nothing else is
+  running: red with "Warning: Kiln hot. Open with caution" at 40 °C /
+  104 °F and above, green with "Safe to open" below, "Off" when the display
+  is dark. After a firing, a hot kiln's cooling is fitted to Newton's law to
+  estimate when it will read below 40 °C (shown on the home screen and in a
+  pop-up on the finished firing screen, revised with every reading;
+  `python/kiln/kiln_temp.py`).
+- **Status page**: `http://<board>:7000/?view` shows the same status
+  read-only on any device on the home network (Idle / Programming / Firing
+  / Busy / Kiln off, the firing screen during a firing, the temperature and
+  cooling estimate). It has no controls; the full app at the same address
+  without `?view` does.
 - **Recovery**: a controller left in a menu is returned to IdLE before a
   sequence starts, and a failed write backs out to IdLE and says so (with
   Try again). If the controller can't be brought back, the app asks for the
@@ -133,7 +146,7 @@ pip install -r requirements.txt
 python main.py --mock-bridge --mock-vision
 ```
 
-Real automated coverage of both layers lives in `python/tests/` (127 tests,
+Real automated coverage of both layers lives in `python/tests/` (146 tests,
 run with `pytest` from `python/`) — that's what to extend, not manual runs
 of `main.py`.
 
