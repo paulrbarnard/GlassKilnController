@@ -149,8 +149,8 @@ class FiringMonitor:
         if message is DisplayMessage.IDLE:
             self.finish("ended", "The controller is back at IdLE: the program ended or was stopped at the kiln")
             return True
-        if state.numeric_value is not None and message is None:
-            self._record_temp(state.numeric_value)
+        if state.temperature is not None:
+            self._record_temp(state.temperature)
         self._emit()
         return False
 

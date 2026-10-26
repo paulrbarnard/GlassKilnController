@@ -139,3 +139,13 @@ def test_cool_reading_clears_the_estimate_and_sets_room_temperature():
     reader.poll()
     assert reader._room_c == 17.0 and reader._cooling == []
     assert reader.status()["cooling"] is False
+
+
+def test_the_firing_time_after_cplt_isnt_a_temperature():
+    # After a firing the display cycles CPLt, the firing time and the
+    # temperature; "0.08" (8 minutes) must not read as 0.08 °C.
+    reader, published = make(["CPLt.", "0.08.", "CPLt.", "  51."])
+    assert reader.poll() == 51.0
+    assert reader.status()["hot"] is True
+    reader2, published2 = make(["0.08."])
+    assert reader2.poll() is None and published2 == []

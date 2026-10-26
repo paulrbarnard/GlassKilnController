@@ -178,8 +178,8 @@ class KilnTemperature:
             state = self._vision.read()
             if deadline is None:
                 deadline = time.monotonic() + READ_WINDOW_S
-            if state.message is None and state.numeric_value is not None:
-                return state.numeric_value, False
+            if state.temperature is not None:
+                return state.temperature, False
             dark = dark and is_dark(state.raw_text)
         return None, dark
 
@@ -198,7 +198,7 @@ class KilnTemperature:
         cool_by = None
         with self._lock:
             if not hot:
-                self._room_c = min(temp_c, HOT_C - 5.0)
+                self._room_c = max(0.0, min(temp_c, HOT_C - 5.0))
                 self._cooling = []
             elif not cooling or (self._cooling and temp_c > self._cooling[-1][1] + 2.0):
                 self._cooling = []  # firing, or heating up again: start over

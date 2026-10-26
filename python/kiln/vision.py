@@ -53,6 +53,20 @@ class ControllerState:
         return text.endswith(".")
 
     @property
+    def temperature(self) -> Optional[float]:
+        """The number on the display if it's a temperature, else None. A
+        time has a decimal point between its digits (H.MM: after a firing
+        the GM LT alternates CPLt, the firing time and the temperature, and
+        "0.08" was taken for 0.08 °C, 2026-10-26); a temperature only ever
+        has the °C point after its last digit."""
+
+        if self.message is not None or self.numeric_value is None:
+            return None
+        if "." in self.raw_text.rstrip().rstrip("."):
+            return None
+        return self.numeric_value
+
+    @property
     def is_error(self) -> bool:
         from kiln.protocol import ERROR_MESSAGES
 
