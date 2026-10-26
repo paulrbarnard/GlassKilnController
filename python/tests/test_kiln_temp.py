@@ -149,3 +149,11 @@ def test_the_firing_time_after_cplt_isnt_a_temperature():
     assert reader.status()["hot"] is True
     reader2, published2 = make(["0.08."])
     assert reader2.poll() is None and published2 == []
+
+
+def test_temperature_and_time_in_fahrenheit():
+    # °F has no trailing point: "  98" is a temperature, "0.08" a time.
+    reader, _ = make(["0.08", "  98"], celsius=False)
+    assert reader.poll() == 98.0
+    reader2, published = make(["0.08"], celsius=False)
+    assert reader2.poll() is None and published == []
