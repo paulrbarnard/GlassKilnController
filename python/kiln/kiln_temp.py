@@ -27,11 +27,13 @@ as it goes.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import threading
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Callable, Optional
 
 from kiln.vision import KilnVision
@@ -39,6 +41,10 @@ from kiln.vision import KilnVision
 log = logging.getLogger(__name__)
 
 HOT_C = 40.0  # at or above this the kiln isn't safe to open
+# The display shows whole degrees, so it changes from 40 to 39 (and the app
+# to "Safe to open") at about 39.5 °C: the cooling estimate aims for that.
+SAFE_SHOWN_C = HOT_C - 0.5
+ROOM_PATH = Path(__file__).resolve().parent.parent / "state" / "kiln_room.json"
 IDLE_HOT_S = 15.0  # how often to read while hot (or not known yet)
 IDLE_COOL_S = 60.0  # ...and once it has cooled
 IDLE_OFF_S = 30.0  # ...and while the kiln is switched off
@@ -63,7 +69,8 @@ def is_hot(temp: float, celsius: bool) -> bool:
 
 
 def cooling_eta_s(samples: list[tuple[float, float]], room_c: float) -> Optional[float]:
-    """Seconds from the last sample until the kiln is below HOT_C, from
+    """Seconds from the last sample until the display will show the kiln
+    below HOT_C (SAFE_SHOWN_C, when "Safe to open" appears), from
     (epoch s, °C) readings of it cooling; None until there's enough to go on.
     Fits ln(T - room) against time (a straight line under Newton's law) and
     works from the fitted temperature at the last sample, not the reading
@@ -89,7 +96,7 @@ def cooling_eta_s(samples: list[tuple[float, float]], room_c: float) -> Optional
     if k <= 0:
         return None
     fitted_now = mean_y - k * ((t_last - t0) - mean_t)  # ln(T - room) at the last sample
-    eta = (fitted_now - math.log(HOT_C - room_c)) / k
+    eta = (fitted_now - math.log(SAFE_SHOWN_C - room_c)) / k
     if eta <= 0:
         return 0.0
     return eta if eta <= COOLING_MAX_S else None
@@ -118,6 +125,7 @@ class KilnTemperature:
         busy: Callable[[], bool],
         firing_temp: Callable[[], Optional[float]],
         clock: Callable[[], float] = time.time,
+        room_path: Optional[Path] = None,
     ):
         self._vision = vision
         self._publish = publish
@@ -125,7 +133,10 @@ class KilnTemperature:
         self._busy = busy  # a sequence or a firing has the controller
         self._firing_temp = firing_temp
         self._clock = clock
-        self._room_c = ASSUMED_ROOM_C
+        # The kiln's last cool reading, kept across restarts (a restart
+        # mid-cooling otherwise falls back on ASSUMED_ROOM_C).
+        self._room_path = room_path
+        self._room_c = self._load_room()
         self._cooling: list[tuple[float, float]] = []  # (epoch s, °C) since nothing ran
         self._lock = threading.Lock()
         self._latest = KilnTemp()
@@ -203,7 +214,10 @@ class KilnTemperature:
         cool_by = None
         with self._lock:
             if not hot:
-                self._room_c = max(0.0, min(temp_c, HOT_C - 5.0))
+                room = max(0.0, min(temp_c, HOT_C - 5.0))
+                if abs(room - self._room_c) >= 1.0:
+                    self._save_room(room)
+                self._room_c = room
                 self._cooling = []
             elif not cooling or (self._cooling and temp_c > self._cooling[-1][1] + 2.0):
                 self._cooling = []  # firing, or heating up again: start over
@@ -221,6 +235,21 @@ class KilnTemperature:
                 cooling=hot and cooling,
             )
         self._emit()
+
+    def _load_room(self) -> float:
+        try:
+            return float(json.loads(self._room_path.read_text())["room_c"])
+        except (AttributeError, OSError, ValueError, KeyError, TypeError):
+            return ASSUMED_ROOM_C
+
+    def _save_room(self, room_c: float) -> None:
+        if self._room_path is None:
+            return
+        try:
+            self._room_path.parent.mkdir(parents=True, exist_ok=True)
+            self._room_path.write_text(json.dumps({"room_c": room_c}))
+        except OSError:
+            log.warning("couldn't save the room temperature to %s", self._room_path)
 
     def _emit(self) -> None:
         try:

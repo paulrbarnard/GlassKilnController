@@ -6,3 +6,4 @@ def _private_kiln_slot_map(tmp_path, monkeypatch):
     """Tests never touch the board's real slot map (python/state/)."""
 
     monkeypatch.setattr("web.api.SLOTS_PATH", tmp_path / "kiln_slots.json")
+    monkeypatch.setattr("web.api.ROOM_PATH", tmp_path / "kiln_room.json")

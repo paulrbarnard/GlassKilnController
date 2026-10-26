@@ -453,7 +453,8 @@ function renderFiring() {
   } else if (finished && live) {
     if (live.off) remaining.textContent = 'kiln off';
     else if (!live.hot) remaining.textContent = 'safe to open';
-    else if (live.cool_by) remaining.textContent = `~${formatHoursMinutes(Math.max(0, (live.cool_by - Date.now() / 1000) / 3600))} to ${live.unit === 'F' ? '104°F' : '40°C'}`;
+    else if (live.cool_by && live.cool_by - Date.now() / 1000 < 60) remaining.textContent = 'any moment now';
+    else if (live.cool_by) remaining.textContent = `~${formatHoursMinutes((live.cool_by - Date.now() / 1000) / 3600)} to ${live.unit === 'F' ? '104°F' : '40°C'}`;
     else remaining.textContent = 'estimating…';
   } else {
     remaining.textContent = '–';
@@ -778,7 +779,9 @@ function coolingText(d) {
   if (!d || !d.hot || d.off || !d.cooling) return null;
   if (!d.cool_by) return 'Estimating cooling time…';
   const limit = d.unit === 'F' ? '104°F' : '40°C';
-  const hours = Math.max(0, (d.cool_by - Date.now() / 1000) / 3600);
+  const hours = (d.cool_by - Date.now() / 1000) / 3600;
+  // Only a reading below 40 °C says "Safe to open", never the countdown.
+  if (hours < 1 / 60) return `Below ${limit} any moment now`;
   return `Below ${limit} in about ${formatHoursMinutes(hours)} (around ${clockTime(d.cool_by)})`;
 }
 

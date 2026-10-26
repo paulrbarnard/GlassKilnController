@@ -97,7 +97,7 @@ def newton(t, start=500.0, room=20.0, k=1 / 7200):
 def test_cooling_estimate_matches_newtons_law():
     samples = [(t, newton(t)) for t in range(0, 20 * 60 + 1, 15)]
     eta = cooling_eta_s(samples, room_c=20.0)
-    truth = math.log((newton(20 * 60) - 20) / (40 - 20)) * 7200  # from the last sample
+    truth = math.log((newton(20 * 60) - 20) / (39.5 - 20)) * 7200  # until it shows 39
     assert abs(eta - truth) < 60  # within a minute of ~6.3 h
 
 
@@ -168,3 +168,17 @@ def test_estimate_doesnt_drift_while_the_reading_sits_on_a_degree():
         window = samples[: n + 1]
         finish_times.append(window[-1][0] + cooling_eta_s(window, room_c=17.0))
     assert max(finish_times) - min(finish_times) < 120  # within 2 min over the last 10 min
+
+
+def test_room_temperature_survives_a_restart(tmp_path):
+    path = tmp_path / "kiln_room.json"
+    reader = KilnTemperature(
+        MockVision(script=["  17."]), publish=lambda _: None, celsius=lambda: True,
+        busy=lambda: False, firing_temp=lambda: None, room_path=path,
+    )
+    reader.poll()
+    again = KilnTemperature(
+        MockVision(script=["IdLE"]), publish=lambda _: None, celsius=lambda: True,
+        busy=lambda: False, firing_temp=lambda: None, room_path=path,
+    )
+    assert again._room_c == 17.0
