@@ -66,6 +66,10 @@ python/                     App Lab Python app (Linux/MPU side)
 assets/                     Static frontend served by the web_ui brick
   index.html, style.css, app.js, diagrams.js
   libs/                     Vendored socket.io + the brick's WebUI JS wrapper
+  state/                    On the board only, never in git: settings, slot map,
+                             Pushover keys, room temperature, cooling logs
+homekit/                    Apple Home companion (HAP-python, own docker compose)
+scripts/                    Deploy, kiosk, and on-board test tools
 hardware/                   Mechanical notes for the button actuators
 app.yaml                    Arduino App Lab manifest (name/icon/ports/bricks)
 ```
@@ -114,20 +118,27 @@ October 2026:
   without `?view` does.
 - **Apple Home**: a HomeKit companion (`homekit/`, its own docker compose
   project with host networking, since App Lab containers can't do mDNS)
-  shows the kiln as a heater: Heating while firing, Cooling after a firing
-  while at or above 40 °C, Idle, or Off. It's read-only (changes made in
-  Home are put back). A "Kiln hot" occupancy sensor can notify when the
-  kiln is safe to open (turn on its activity notifications in Home
-  Settings). `scripts/deploy.sh --homekit` rebuilds it; the pairing keys
-  stay in `homekit/state/` on the board.
+  shows the kiln as a heater: "Heating to <peak>" while firing, "Cooling to
+  40°" after a firing while hot, otherwise Off with the temperature. It's
+  read-only (changes made in Home are put back). A "Kiln safe to open"
+  occupancy sensor is there for automations. `scripts/deploy.sh --copy-only
+  --homekit` rebuilds it; the pairing keys stay in `homekit/state/` on the
+  board.
+- **Notifications**: the app pushes to your phone through Pushover
+  (`python/kiln/notify.py`): Firing started (with an expected finish),
+  Firing complete / stopped / ended, Kiln error, Kiln programming failed,
+  and Kiln safe to open. The keys (a user key and a "Kiln" application
+  token) live only in `python/state/notify.json` on the board; with none,
+  nothing is sent.
 - **Recovery**: a controller left in a menu is returned to IdLE before a
   sequence starts, and a failed write backs out to IdLE and says so (with
   Try again). If the controller can't be brought back, the app asks for the
   kiln to be power-cycled.
 
-Not yet done: °F value entry on the kiln, the MGF override flow, and the
-switch to the DSI display (enabling DSI in the device tree currently breaks
-the camera's, so it needs a plan). See `docs/architecture.md` for what was
+Next: the Waveshare 8" DSI touchscreen, once it arrives (enabling DSI in
+the device tree has broken the camera's, so it needs a plan). Not yet done:
+°F value entry on the kiln and the MGF override flow. Why things are the
+way they are: `docs/decisions.md`. See `docs/architecture.md` for what was
 confirmed on hardware and the dead ends: PySide6 doesn't work in the App Lab
 container, and this board's PWM pins are fixed at 500 Hz, so the `Servo`
 library doesn't either (the original servo actuators were replaced by
@@ -154,7 +165,7 @@ pip install -r requirements.txt
 python main.py --mock-bridge --mock-vision
 ```
 
-Real automated coverage of both layers lives in `python/tests/` (146 tests,
+Real automated coverage of both layers lives in `python/tests/` (153 tests,
 run with `pytest` from `python/`) — that's what to extend, not manual runs
 of `main.py`.
 
@@ -180,3 +191,4 @@ at IdLE:
   UI) fit together and the state machine that ties reality (camera) to intent
   (profile).
 - `docs/hardware.md` — solenoid/camera mounting notes, wiring and calibration procedure.
+- `docs/decisions.md` — the design decisions and the reasons for them.
