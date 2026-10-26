@@ -406,8 +406,15 @@ def register_routes(
         entry = kiln_programs.get(int(slot))
         if not entry or "segments" not in entry:
             return {"error": f"slot {slot} hasn't been read from the kiln"}
-        name = ((body or {}).get("name") or f"Kiln slot {slot}").strip()
-        profile_id = f"kiln_slot_{slot}"
+        # A new profile each time, named for where it came from (it won't
+        # necessarily stay in that slot). A fixed id per slot would let a
+        # later import overwrite whatever the user made of the first one.
+        name = ((body or {}).get("name") or f"Imported from slot {slot}").strip()
+        taken = {p.id for p in library.all()}
+        base = "imported_slot_" + slot
+        profile_id = next(
+            pid for pid in (base if i == 1 else f"{base}_{i}" for i in range(1, 1000)) if pid not in taken
+        )
         try:
             profile = Profile.from_dict(
                 {

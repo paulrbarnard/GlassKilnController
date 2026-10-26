@@ -254,9 +254,16 @@ def test_kiln_programs_read_compare_and_import(tmp_path):
     assert "app_profile" not in entry
 
     profile = ui.call("POST", "/api/kiln_programs/{slot}/import", slot="4", body={})
-    assert profile["id"] == "kiln_slot_4" and profile["kiln_slot"] == 4 and profile["uses"] == 0
+    assert profile["id"] == "imported_slot_4" and profile["kiln_slot"] == 4 and profile["uses"] == 0
     [entry] = ui.call("GET", "/api/kiln_programs")["programs"]
-    assert entry["app_profile"] == {"id": "kiln_slot_4", "name": "Kiln slot 4", "uses": 0, "matches": True}
+    assert entry["app_profile"] == {
+        "id": "imported_slot_4", "name": "Imported from slot 4", "uses": 0, "matches": True
+    }
+
+    # A second import is a new profile; it doesn't overwrite the first.
+    again = ui.call("POST", "/api/kiln_programs/{slot}/import", slot="4", body={})
+    assert again["id"] == "imported_slot_4_2"
+    assert library.get("imported_slot_4").name == "Imported from slot 4"
 
     # Read again: still matches what the app now holds for slot 4.
     ui.call("POST", "/api/kiln_programs/read", body={"slots": [4]})
