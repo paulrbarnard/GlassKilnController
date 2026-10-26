@@ -77,9 +77,11 @@ def test_firing_end_pushes(tmp_path, monkeypatch):
     monitor = next(o for o in gc.get_objects() if isinstance(o, FiringMonitor) and o._publish.__name__ == "publish_firing")
     base = {"profile_name": "Full fuse", "profile_id": "full_fuse_slow", "unit": "C", "fired_at": 1.0, "ended_at": 1793022095.0, "message": ""}
     monitor._publish({**base, "phase": "programming", "temp": None})
-    monitor._publish({**base, "phase": "firing", "temp": 21})
+    reader = next(o for o in gc.get_objects() if type(o).__name__ == "KilnTemperature" and o._on_safe is not None)
+    reader._record(21.0)  # the home-screen reader's last reading before the start
+    monitor._publish({**base, "phase": "firing", "temp": None})
     monitor._publish({**base, "phase": "firing", "temp": 300})  # still firing: no second push
-    started = [s for s in sent if s[0].startswith("Firing started")]
+    started = [s for s in sent if s[0] == "Firing started"]
     assert len(started) == 1 and "at 21°C" in started[0][1] and "Expected to finish about" in started[0][1]
     sent.clear()
     monitor._publish({**base, "phase": "firing", "temp": 790})
@@ -87,7 +89,7 @@ def test_firing_end_pushes(tmp_path, monkeypatch):
     monitor._publish({**base, "phase": "complete", "temp": 780})  # repeated status: no second push
     assert len(sent) == 1
     title, message, priority = sent[0]
-    assert title == "Firing complete: Full fuse" and "kiln 790°C" in message and "Not safe to open yet" in message
+    assert title == "Firing complete" and "kiln 790°C" in message and "Not safe to open yet" in message
     monitor._publish({**base, "phase": "programming", "fired_at": None, "temp": None})
     monitor._publish({**base, "phase": "error", "fired_at": None, "temp": None, "message": "couldn't set the value"})
     assert sent[-1][0] == "Kiln programming failed" and sent[-1][2] == 1

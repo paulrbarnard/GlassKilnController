@@ -126,43 +126,46 @@ def register_routes(
         """A push when the controller shows ON: programming and the slot
         check have passed and the kiln is firing."""
 
-        name = status.get("profile_name") or "the firing"
         started = status.get("fired_at") or time.time()
-        temp = status.get("temp")
+        temp, unit = status.get("temp"), status.get("unit", "C")
+        if temp is None:
+            # The monitor reports the start before its first reading; the
+            # home-screen reader's last one is from just before.
+            reading = kiln_temp.status()
+            temp, unit = reading.get("temp"), reading.get("unit", unit)
         at = time.strftime("%H:%M", time.localtime(started))
-        message = f"Started {at}" + ("" if temp is None else f" at {round(temp)}°{status.get('unit', 'C')}") + "."
+        message = f"Started {at}" + ("" if temp is None else f" at {round(temp)}°{unit}") + "."
         try:
             profile = library.get(status.get("profile_id"))
-            start_f = None if temp is None else (temp if status.get("unit") == "F" else temp * 9 / 5 + 32)
+            start_f = None if temp is None else (temp if unit == "F" else temp * 9 / 5 + 32)
             hours = profile_hours(profile.resolved_segments(), start_f)
             finish = time.strftime("%H:%M", time.localtime(started + hours * 3600))
             message += f" Expected to finish about {finish} ({int(hours)}h {round(hours % 1 * 60):02d}m)."
         except (KeyError, TypeError, ValueError, ZeroDivisionError):
             pass  # no profile to go by: just say it started
-        notifier.send(f"Firing started: {name}", message)
+        notifier.send("Firing started", message)
 
     def push_firing_end(status: dict) -> None:
         """A push when a firing ends: how, when, and whether it's safe yet."""
 
-        name = status.get("profile_name") or "the firing"
         at = time.strftime("%H:%M", time.localtime(status.get("ended_at") or time.time()))
         temp = status.get("temp")
         reading = "" if temp is None else f", kiln {round(temp)}°{status.get('unit', 'C')}"
         phase = status.get("phase")
         if phase == "error" and not status.get("fired_at"):
-            notifier.send("Kiln programming failed", f"{name}: {status.get('message', '')}", priority=1)
+            notifier.send("Kiln programming failed", status.get("message", ""), priority=1)
             return
         titles = {
-            "complete": f"Firing complete: {name}",
-            "stopped": f"Firing stopped: {name}",
-            "ended": f"Program ended: {name}",
-            "error": f"Kiln error: {name}",
+            "complete": "Firing complete",
+            "stopped": "Firing stopped",
+            "ended": "Program ended",
+            "error": "Kiln error",
         }
         hot = temp is not None and kiln_temp_hot(temp, status.get("unit", "C"))
         message = f"Finished at {at}{reading}." + (" Not safe to open yet." if hot else " Safe to open.")
         if phase == "error":
             message = f"{status.get('message', '')} ({at}{reading})"
-        notifier.send(titles.get(phase, f"Firing finished: {name}"), message, priority=1 if phase == "error" else 0)
+        notifier.send(titles.get(phase, "Firing finished"), message, priority=1 if phase == "error" else 0)
 
     def kiln_temp_hot(temp: float, unit: str) -> bool:
         from kiln.kiln_temp import is_hot
