@@ -710,7 +710,7 @@ function renderKilnTemp(d) {
   const limit = d.unit === 'F' ? '104°F' : '40°C';
   const ageMin = (Date.now() / 1000 - d.at) / 60;
   const age = ageMin >= 3 ? ` (read at ${clockTime(d.at)})` : '';
-  note.textContent = (d.hot ? `Hot: at or above ${limit}` : `Below ${limit}`) + age;
+  note.textContent = (d.hot ? `Hot: at or above ${limit}` : 'Safe to open') + age;
 }
 
 async function loadKilnTemp() {
