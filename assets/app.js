@@ -513,20 +513,45 @@ function editorAddRow(segF) {
 }
 
 // The Custom screen holds MAX_USER_PROFILES and no more (no scrolling or
-// extra pages), so a new profile needs a free place. Says so up front
-// rather than after the editor has been filled in.
-async function customProfilesFull() {
-  const { profiles } = await api('GET', '/api/profiles');
-  if (profiles.filter((p) => p.kind === 'ramp_hold').length < MAX_USER_PROFILES) return false;
-  alert(
-    `There are already ${MAX_USER_PROFILES} custom profiles, the most the app keeps. ` +
-      'Open one you no longer use and delete it first.'
-  );
-  return true;
+// extra pages), so a new profile needs a free place. When the app is full,
+// asks up front which profile the new one replaces (least used first), so
+// nobody fills in the editor only to be refused. Resolves to
+// { replaceId } (null when there's room), or null if cancelled.
+async function makeRoomForProfile(what) {
+  const customs = (await api('GET', '/api/profiles')).profiles.filter((p) => p.kind === 'ramp_hold');
+  if (customs.length < MAX_USER_PROFILES) return { replaceId: null };
+  const leastUsed = customs
+    .slice()
+    .sort((a, b) => (a.uses || 0) - (b.uses || 0) || !!a.kiln_slot - !!b.kiln_slot || a.name.localeCompare(b.name));
+  return new Promise((resolve) => {
+    document.getElementById('send-picker-title').textContent =
+      `The app holds ${MAX_USER_PROFILES} custom profiles. Which one should ${what} replace?`;
+    const list = document.getElementById('send-list');
+    list.innerHTML = '';
+    leastUsed.forEach((profile) => {
+      const btn = document.createElement('button');
+      const where = profile.kiln_slot ? `on kiln slot ${profile.kiln_slot}` : 'not on the kiln';
+      const fired = profile.uses ? `fired ${profile.uses}×` : 'never fired';
+      btn.innerHTML = `${profile.name}<span class="send-summary">${fired}, ${where} · ${profileSummary(profile)}</span>`;
+      btn.addEventListener('click', () => {
+        if (!confirm(`Replace “${profile.name}”? It's deleted from the app (anything on the kiln stays until that slot is reused).`)) return;
+        pickerCancel = null;
+        closeSendPicker();
+        resolve({ replaceId: profile.id });
+      });
+      list.appendChild(btn);
+    });
+    pickerCancel = () => resolve(null);
+    document.getElementById('send-picker').hidden = false;
+  });
 }
 
+let pendingReplaceId = null; // the profile a new one replaces (see makeRoomForProfile)
+
 async function openNewProfileEditor() {
-  if (await customProfilesFull()) return;
+  const room = await makeRoomForProfile('the new profile');
+  if (!room) return;
+  pendingReplaceId = room.replaceId;
   editingProfileId = null;
   document.getElementById('editor-name').value = '';
   document.getElementById('editor-description').value = '';
@@ -546,6 +571,7 @@ function openEditProfileEditor(profile) {
   // copy — that's only valid because ramp_hold profiles genuinely live
   // in reprogrammable PRO-mode memory on the controller.
   if (profile.kind !== 'ramp_hold') return;
+  pendingReplaceId = null;
   editingProfileId = profile.id;
   document.getElementById('editor-name').value = profile.name;
   document.getElementById('editor-description').value = profile.description;
@@ -562,7 +588,9 @@ async function openDuplicateProfileEditor(profile) {
   // starts a brand new, separate PRO-mode profile pre-filled with this
   // preset's current numbers. Saving creates a new id via slugify(name),
   // it never touches the original preset.
-  if (await customProfilesFull()) return;
+  const room = await makeRoomForProfile('the copy');
+  if (!room) return;
+  pendingReplaceId = room.replaceId;
   editingProfileId = null;
   document.getElementById('editor-name').value = `${profile.name} (Custom)`;
   document.getElementById('editor-description').value = profile.description;
@@ -610,6 +638,7 @@ async function saveProfile() {
     description: document.getElementById('editor-description').value.trim(),
     segments,
   };
+  if (!editingProfileId && pendingReplaceId) body.replace_id = pendingReplaceId;
   let profile;
   try {
     profile = await api('POST', '/api/profiles', body);
@@ -617,6 +646,7 @@ async function saveProfile() {
     alert(`Could not save: ${e.message}`);
     return;
   }
+  pendingReplaceId = null;
   currentProfile = profile;
   openProfile(profile.id, 'screen-custom');
 }
@@ -895,8 +925,15 @@ async function openSendPicker(slot) {
   document.getElementById('send-picker').hidden = false;
 }
 
+let pickerCancel = null; // set while the picker is choosing a profile to replace
+
 function closeSendPicker() {
   document.getElementById('send-picker').hidden = true;
+  if (pickerCancel) {
+    const cancel = pickerCancel;
+    pickerCancel = null;
+    cancel();
+  }
 }
 
 async function sendToSlot(slot, profile) {
@@ -914,9 +951,18 @@ async function sendToSlot(slot, profile) {
 }
 
 async function importKilnProgram(slot, btn) {
+  let room;
+  try {
+    room = await makeRoomForProfile(`the program from slot ${slot}`);
+  } catch (e) {
+    alert(`Could not import: ${e.message}`);
+    return;
+  }
+  if (!room) return;
   btn.disabled = true;
   try {
-    const profile = await api('POST', `/api/kiln_programs/${slot}/import`, {});
+    const body = room.replaceId ? { replace_id: room.replaceId } : {};
+    const profile = await api('POST', `/api/kiln_programs/${slot}/import`, body);
     showToast(`Slot ${slot} saved as the custom profile “${profile.name}”.`);
     loadKilnPrograms();
   } catch (e) {

@@ -149,13 +149,30 @@ def register_routes(
             return {"error": f"no such profile: {profile_id}"}
         return detail(profile)
 
+    def replace_custom(replace_id: Optional[str], new_id: str) -> None:
+        """Make room for a new custom profile by deleting ``replace_id``
+        (the user chose it when the app already had MAX_USER_PROFILES).
+        Called once the new profile is known to be valid."""
+
+        if not replace_id or replace_id == new_id:
+            return
+        try:
+            old = library.get(replace_id)
+        except KeyError:
+            raise ValueError(f"no such profile to replace: {replace_id}") from None
+        if old.kind is not ProfileKind.RAMP_HOLD:
+            raise ValueError("only custom profiles can be replaced")
+        library.delete_user_profile(replace_id)
+
     def save_profile(body: dict):
         try:
+            fields = {k: v for k, v in body.items() if k != "replace_id"}
             profile = Profile.from_dict(
-                {**body, "kind": ProfileKind.RAMP_HOLD.value, "source": "user"}
+                {**fields, "kind": ProfileKind.RAMP_HOLD.value, "source": "user"}
             )
+            replace_custom(body.get("replace_id"), profile.id)
             library.save_user_profile(profile)
-        except (KeyError, ValueError) as exc:
+        except (KeyError, ValueError, TypeError) as exc:
             return {"error": str(exc)}
         return detail(profile)
 
@@ -426,6 +443,7 @@ def register_routes(
                     "segments": entry["segments"],
                 }
             )
+            replace_custom((body or {}).get("replace_id"), profile.id)
             library.save_user_profile(profile)
         except (KeyError, ValueError) as exc:
             return {"error": str(exc)}

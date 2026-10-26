@@ -269,3 +269,27 @@ def test_kiln_programs_read_compare_and_import(tmp_path):
     ui.call("POST", "/api/kiln_programs/read", body={"slots": [4]})
     _wait_for_threads()
     assert ui.call("GET", "/api/kiln_programs")["programs"][0]["app_profile"]["matches"] is True
+
+
+def test_a_full_app_can_replace_a_chosen_profile(tmp_path):
+    ui, _, library, _ = make_registered(tmp_path)
+    for i in range(MAX_USER_PROFILES - 1):
+        make_custom(ui, f"p{i}")
+    assert "error" in make_custom(ui, "extra")
+    body = {
+        "id": "extra", "name": "extra", "description": "", "replace_id": "p3",
+        "segments": [{"rate_f_per_hr": 200, "target_temp_f": 1000, "hold_minutes": 10}],
+    }
+    saved = ui.call("POST", "/api/profiles", body=body)
+    assert saved["id"] == "extra"
+    ids = {p.id for p in library.all()}
+    assert "extra" in ids and "p3" not in ids
+    assert library.custom_count() == MAX_USER_PROFILES
+
+
+def test_replacing_keeps_the_old_profile_if_the_new_one_is_invalid(tmp_path):
+    ui, _, library, _ = make_registered(tmp_path)
+    make_custom(ui, "keep_me")
+    bad = {"id": "bad", "name": "bad", "description": "", "replace_id": "keep_me", "segments": "nonsense"}
+    assert "error" in ui.call("POST", "/api/profiles", body=bad)
+    assert "keep_me" in {p.id for p in library.all()}

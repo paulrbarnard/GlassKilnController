@@ -74,11 +74,10 @@ def build_glassfire_profiles() -> list[Profile]:
 def build_casting_profile() -> Profile:
     return Profile(
         id="casting_factory",
-        name="Casting (factory, PRO slot 5)",
+        name="Casting",
         description=(
-            "Factory-programmed Ramp & Hold casting schedule, stored in PRO "
-            "mode slot 5. Restored automatically by a controller factory "
-            "reset; overwritten if you store a different program in slot 5."
+            "The Ramp & Hold casting schedule the GM LT ships with (in its PRO "
+            "slot 5, which a controller factory reset restores)."
         ),
         kind=ProfileKind.RAMP_HOLD,
         source="library",
