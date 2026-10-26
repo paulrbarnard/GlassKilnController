@@ -180,7 +180,6 @@ async function openCustom() {
 }
 
 function goHome() {
-  document.getElementById('cooling-popup').hidden = true;
   showScreen('screen-home');
   refreshBridgeStatus();
   loadKilnTemp();
@@ -341,45 +340,6 @@ function formatHoursMinutes(hours) {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
-// Pops up over the firing screen when a firing has ended with the kiln hot:
-// how long it will take to cool below 40 °C / 104 °F. Updated with every
-// reading; once closed it stays closed for that firing.
-let coolingPopupClosedFor = null; // fired_at of the firing whose popup was closed
-
-const FINISHED_TITLES = {
-  complete: 'Firing complete – cooling',
-  ended: 'Program ended – cooling',
-  stopped: 'Firing stopped – cooling',
-  error: 'Kiln shut off – cooling',
-};
-
-function renderCoolingPopup(st, live) {
-  const popup = document.getElementById('cooling-popup');
-  const onRunScreen = document.getElementById('screen-run').classList.contains('active');
-  const wanted =
-    onRunScreen && st && st.fired_at && !firingActive() && live && !live.off && coolingPopupClosedFor !== st.fired_at;
-  // Opens only while hot; once open it stays to show the kiln has cooled.
-  if (!wanted || (popup.hidden && !live.hot)) {
-    if (!wanted) popup.hidden = true;
-    return;
-  }
-  popup.hidden = false;
-  document.getElementById('cooling-title').textContent = live.hot
-    ? FINISHED_TITLES[st.phase] || 'Firing finished – cooling'
-    : 'Cooled: safe to open';
-  const temp = document.getElementById('cooling-temp');
-  temp.textContent = `${Math.round(live.temp)}°${live.unit}`;
-  temp.className = live.hot ? 'cooling-temp' : 'cooling-temp cool';
-  document.getElementById('cooling-eta').textContent = live.hot
-    ? coolingText(live) || 'Estimating cooling time…'
-    : `The kiln is below ${live.unit === 'F' ? '104°F' : '40°C'}.`;
-}
-
-function closeCoolingPopup() {
-  document.getElementById('cooling-popup').hidden = true;
-  if (firingStatus) coolingPopupClosedFor = firingStatus.fired_at;
-}
-
 function renderFiring() {
   const st = firingStatus;
   const banner = document.getElementById('firing-banner');
@@ -429,7 +389,6 @@ function renderFiring() {
   } else {
     remaining.textContent = '–';
   }
-  renderCoolingPopup(st, live);
 
   const stopBtn = document.getElementById('stop-btn');
   stopBtn.hidden = !firingActive();
@@ -887,7 +846,6 @@ document.getElementById('add-temp-btn').addEventListener('click', () =>
 );
 document.getElementById('stop-btn').addEventListener('click', stopFiring);
 document.getElementById('run-done-btn').addEventListener('click', goHome);
-document.getElementById('cooling-close-btn').addEventListener('click', closeCoolingPopup);
 document.getElementById('run-retry-btn').addEventListener('click', () => {
   currentProfile = firingProfile;
   startFiring();
