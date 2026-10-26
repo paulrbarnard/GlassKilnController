@@ -35,6 +35,7 @@ from typing import Optional
 from pyhap.accessory import Accessory
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.const import CATEGORY_HEATER
+from pyhap.loader import get_loader
 
 log = logging.getLogger("hap-kiln")
 
@@ -61,6 +62,16 @@ def http_json(path: str, timeout: float = 5):
         return json.loads(resp.read())
 
 
+def name_service(service, name: str) -> None:
+    """The Home app shows a service's ConfiguredName (iOS 16 on); with only
+    Name set, the "Kiln hot" sensor showed up as "Occupancy Sensor"."""
+
+    service.configure_char("Name", value=name)
+    configured = get_loader().get_char("ConfiguredName")
+    service.add_characteristic(configured)
+    configured.set_value(name)
+
+
 def to_c(temp: float, unit: str) -> float:
     return (temp - 32.0) * 5.0 / 9.0 if unit == "F" else temp
 
@@ -80,7 +91,7 @@ class Kiln(Accessory):
         heater = self.add_preload_service(
             "HeaterCooler", chars=["HeatingThresholdTemperature", "Name"]
         )
-        heater.configure_char("Name", value=NAME)
+        name_service(heater, NAME)
         self.char_active = heater.configure_char("Active", value=0, setter_callback=self._undo)
         self.char_state = heater.configure_char("CurrentHeaterCoolerState", value=INACTIVE)
         # Heat is its only mode: set the value before narrowing the valid
@@ -95,7 +106,7 @@ class Kiln(Accessory):
         )
 
         hot = self.add_preload_service("OccupancySensor", chars=["Name"])
-        hot.configure_char("Name", value="Kiln hot")
+        name_service(hot, "Kiln hot")
         self.char_hot = hot.configure_char("OccupancyDetected", value=0)
 
         self._shown: dict = {}
