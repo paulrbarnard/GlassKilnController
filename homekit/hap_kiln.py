@@ -273,6 +273,11 @@ def watchdog() -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if os.environ.get("HAP_DEBUG"):
+        # Subscriptions and event sends: shows whether the home hub hears of
+        # changes (e.g. "Kiln hot" for its notification).
+        logging.getLogger("pyhap.accessory_driver").setLevel(logging.DEBUG)
+        logging.getLogger("pyhap.hap_handler").setLevel(logging.DEBUG)
     os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
     wait_for_address()
     driver = AccessoryDriver(port=PORT, persist_file=STATE_FILE, address=ADDRESS, pincode=setup_code())

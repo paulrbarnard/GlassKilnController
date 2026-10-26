@@ -12,6 +12,7 @@ services:
       HOST_IP: 192.168.0.74
       ACCESSORY_NAME: Kiln
       STATE_FILE: /state/accessory.state
+      HAP_DEBUG: "1"             # log subscriptions and events; remove once notifications are confirmed
     volumes:
       - ./state:/state           # pairing keys; keep it to stay paired
     logging:
