@@ -536,9 +536,10 @@ def test_taps_only_never_holds_and_allows_for_the_distance(monkeypatch):
 
 class _MgfEditor(_ValueEditor):
     """An MGF value as recorded on the kiln (2026-11-02): the first press
-    only stops the alternating; a hold changes the value every 0.5 s after
-    2 s, by 1 four times, then 10 eight times, then 100; one more step lands
-    after a release, as on the kiln (released at 799, landed on 809)."""
+    only stops the alternating; a timed press longer than a tap moves the
+    value by 1 four times, then 10 eight times, then 100, one step every
+    0.5 s from 2.0 s (slightly off the app's 1.95 / 0.49, as a real kiln
+    might be)."""
 
     def __init__(self, value):
         super().__init__(value)
@@ -546,27 +547,16 @@ class _MgfEditor(_ValueEditor):
 
     def press(self, key, hold_ms=SHORT_PRESS_MS):
         self.presses.append((key, hold_ms))
+        sign = 1 if key is Key.UP else -1
         if self.flashing:
             self.flashing = False
             return
-        self.value += 1 if key is Key.UP else -1
-
-    def hold_start(self, key, max_ms):
-        self.presses.append((key, -max_ms))
-        self.flashing = False
-        self.hold = (key, self.now, self.value)
-
-    def _held_value(self, at):
-        key, started, base = self.hold
-        sign = 1 if key is Key.UP else -1
-        held = at - started
-        steps = int(max(0.0, held - 2.0) / 0.5) + (1 if held >= 2.0 else 0)
-        moved = sum(1 if i < 4 else 10 if i < 12 else 100 for i in range(steps))
-        return base + sign * moved
-
-    def hold_release(self):
-        self.value = self._held_value(self.now + 0.5)
-        self.hold = None
+        if hold_ms < 1000:
+            self.value += sign
+            return
+        held = hold_ms / 1000
+        steps = 0 if held < 2.0 else int((held - 2.0) / 0.5) + 1
+        self.value += sign * sum(1 if i < 4 else 10 if i < 12 else 100 for i in range(steps))
 
 
 def _mgf_editing(monkeypatch, value):
@@ -583,24 +573,24 @@ def test_mgf_temperature_is_held_in_steps_then_tapped(monkeypatch):
     sequencer, fake = _mgf_editing(monkeypatch, 796)
     sequencer._set_stepped_value(725)
     assert fake.value == 725
-    holds = [p for p in fake.presses if p[1] < 0]
-    taps = [p for p in fake.presses if p[1] > 0]
+    holds = [p for p in fake.presses if p[1] >= 1000]
+    taps = [p for p in fake.presses if p[1] < 1000]
     assert 1 <= len(holds) <= 2
-    assert len(taps) <= 12  # the flash-stopping tap plus fewer than 10 to finish
+    assert len(taps) <= 11  # the flash-stopping tap plus fewer than 10 to finish
 
 
 def test_mgf_big_change_uses_the_hundreds_and_doesnt_overshoot_far(monkeypatch):
     sequencer, fake = _mgf_editing(monkeypatch, 796)
     sequencer._set_stepped_value(560)
     assert fake.value == 560
-    assert len([p for p in fake.presses if p[1] > 0]) <= 12
+    assert len([p for p in fake.presses if p[1] < 1000]) <= 11
 
 
 def test_mgf_small_change_is_just_taps(monkeypatch):
     sequencer, fake = _mgf_editing(monkeypatch, 796)
     sequencer._set_stepped_value(790)
     assert fake.value == 790
-    assert all(p[1] > 0 for p in fake.presses)
+    assert all(p[1] < 1000 for p in fake.presses)
 
 
 
@@ -610,4 +600,23 @@ def test_mgf_hold_lets_go_a_step_early_so_few_taps_are_left(monkeypatch):
     sequencer, fake = _mgf_editing(monkeypatch, 725)
     sequencer._set_stepped_value(800)
     assert fake.value == 800
-    assert len([p for p in fake.presses if p[1] > 0]) <= 4  # the flash-stopping tap + a few
+    assert len([p for p in fake.presses if p[1] < 1000]) <= 3  # the flash-stopping tap + a tap or two
+
+
+
+def test_mgf_timetable_lands_short_of_the_target():
+    from kiln.sequencer import mgf_hold_s, mgf_steps_within
+
+    assert mgf_steps_within(9) == 0  # taps only
+    assert mgf_steps_within(75) == 11  # 4 x 1 + 7 x 10 = 74
+    assert mgf_steps_within(100) == 12  # 84; the next step (100) would pass it
+    assert mgf_steps_within(300) == 14  # 284
+    assert abs(mgf_hold_s(11) - (1.95 + 10 * 0.49 + 0.245)) < 1e-9
+
+
+def test_mgf_800_to_700_takes_two_holds_and_a_few_taps(monkeypatch):
+    sequencer, fake = _mgf_editing(monkeypatch, 800)
+    sequencer._set_stepped_value(700)
+    assert fake.value == 700
+    assert len([p for p in fake.presses if p[1] >= 1000]) <= 2
+    assert len([p for p in fake.presses if p[1] < 1000]) <= 8

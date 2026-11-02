@@ -85,11 +85,35 @@ SETTLE_GAP_S = 0.4  # two readings this far apart must agree for a value to coun
 # Holds and taps allowed to bring one value to its target (each corrects
 # whatever the last one missed or double counted).
 VALUE_ATTEMPTS = 24
-# MGF values (_set_stepped_value): holds allowed before the last taps, the
-# longest hold, and the biggest step a held press makes there.
-MGF_HOLDS = 4
-MGF_HOLD_MAX_S = 15.0
-MGF_MAX_STEP = 110
+# MGF values (_set_stepped_value): a held press's timetable there, recorded
+# on the kiln (2026-11-02): first step at 1.95 s, then one every 0.49 s, by 1
+# four times, then 10 eight times, then 100.
+MGF_FIRST_STEP_S = 1.95
+MGF_STEP_S = 0.49
+MGF_STEP_SIZES = [1] * 4 + [10] * 8 + [100] * 12
+MGF_HOLDS = 3  # timed holds before the last taps
+
+
+def mgf_steps_within(distance: int) -> int:
+    """How many steps of a held press stay within ``distance`` (taps finish
+    anything under 10, so no hold for that)."""
+
+    if distance < 10:
+        return 0
+    moved, steps = 0, 0
+    for size in MGF_STEP_SIZES:
+        if moved + size > distance:
+            break
+        moved += size
+        steps += 1
+    return steps
+
+
+def mgf_hold_s(steps: int) -> float:
+    """Hold long enough for ``steps`` steps: halfway between that step and
+    the next, so a quarter-second either way still gives ``steps``."""
+
+    return MGF_FIRST_STEP_S + MGF_STEP_S * (steps - 1) + MGF_STEP_S / 2
 # A watched scroll ignores readings that jump further than
 # SLACK + FACTOR * speed * time since the last good reading (speed at least
 # MIN_RATE steps/s, so the first readings of a hold aren't all refused).
@@ -836,11 +860,13 @@ class Sequencer:
     def _set_stepped_value(self, target: int, scale: int = 1) -> None:
         """Bring an MGF value (process temperature, or hold with ``scale``
         100) to ``target``. On these screens a held UP/DOWN changes the
-        value every half second, in steps that grow: nothing for 2 s, then
-        4 steps of 1, then 8 of 10, then 100s (recorded on the kiln,
-        2026-11-02). So: one tap to stop the alternating (it changes
-        nothing), holds released once the distance left is less than the
-        current step, then single checked taps for the last few."""
+        value on a fixed timetable (recorded on the kiln, 2026-11-02): the
+        first step at MGF_FIRST_STEP_S, then one every MGF_STEP_S, by 1 four
+        times, then 10 eight times, then 100. The camera sees each step about
+        a third of a second late, too late to watch the value and let go
+        (holds overshot by a step of 100), so the hold is timed instead: as
+        many steps as stay short of the target, then single checked taps.
+        The first press only stops the display alternating."""
 
         key = Key.UP if target > self._value(scale) else Key.DOWN
         self._press(key)  # only stops the alternating
@@ -848,43 +874,15 @@ class Sequencer:
         for _ in range(MGF_HOLDS):
             self._check_abort()
             current = self._settled_value(scale)
-            if abs(target - current) < 10:
+            steps = mgf_steps_within(abs(target - current))
+            if steps == 0:
                 break
             key = Key.UP if target > current else Key.DOWN
-            released_at = self._hold_in_steps(key, target, current, scale)
+            hold_s = mgf_hold_s(steps)
+            self.bridge.press(key, hold_ms=int(hold_s * 1000))
             time.sleep(QUIET_AFTER_HOLD_S)
-            log.info("held %s in steps: %d -> %s (target %d)", key.name, current, released_at, target)
+            log.info("held %s %.2f s (%d steps): from %d (target %d)", key.name, hold_s, steps, current, target)
         self._set_value(target, scale, taps_only=True)
-
-    def _hold_in_steps(self, key: Key, target: int, current: int, scale: int) -> Optional[int]:
-        """Hold ``key`` and release a step before ``target``: one more step
-        always lands after the release (on the kiln a release at 799 for
-        800 still went on to 809, 2026-11-02), so it lets go once the
-        distance left is less than two of the current steps. Readings that
-        move the wrong way, or by more than one step can, are frames caught
-        mid-change and ignored."""
-
-        sign = 1 if key is Key.UP else -1
-        last, step = current, 1
-        self.bridge.hold_start(key, int(MGF_HOLD_MAX_S * 1000))
-        started = time.monotonic()
-        try:
-            while time.monotonic() - started < MGF_HOLD_MAX_S:
-                self._check_abort()
-                state = self.vision.read_fast()
-                if state.message is not None or state.numeric_value is None:
-                    continue
-                value = _steps(state.numeric_value, scale)
-                moved = (value - last) * sign
-                if moved <= 0 or moved > MGF_MAX_STEP:
-                    continue
-                step = 100 if moved > 50 else 10 if moved > 5 else 1
-                last = value
-                if (target - last) * sign < 2 * step:
-                    return last
-            return last
-        finally:
-            self.bridge.hold_release()
 
     def _hold_towards(self, key: Key, target: int, current: int, scale: int) -> Optional[int]:
         """Hold ``key`` while watching the value, and release when it's about
