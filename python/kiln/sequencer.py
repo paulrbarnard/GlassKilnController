@@ -857,10 +857,12 @@ class Sequencer:
         self._set_value(target, scale, taps_only=True)
 
     def _hold_in_steps(self, key: Key, target: int, current: int, scale: int) -> Optional[int]:
-        """Hold ``key`` and release as soon as the distance left to
-        ``target`` is less than the step the value is now changing by (the
-        next step would pass it). Readings that move the wrong way, or by
-        more than one step can, are frames caught mid-change and ignored."""
+        """Hold ``key`` and release a step before ``target``: one more step
+        always lands after the release (on the kiln a release at 799 for
+        800 still went on to 809, 2026-11-02), so it lets go once the
+        distance left is less than two of the current steps. Readings that
+        move the wrong way, or by more than one step can, are frames caught
+        mid-change and ignored."""
 
         sign = 1 if key is Key.UP else -1
         last, step = current, 1
@@ -878,7 +880,7 @@ class Sequencer:
                     continue
                 step = 100 if moved > 50 else 10 if moved > 5 else 1
                 last = value
-                if (target - last) * sign < step:
+                if (target - last) * sign < 2 * step:
                     return last
             return last
         finally:

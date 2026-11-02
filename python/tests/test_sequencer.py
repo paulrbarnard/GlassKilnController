@@ -537,8 +537,8 @@ def test_taps_only_never_holds_and_allows_for_the_distance(monkeypatch):
 class _MgfEditor(_ValueEditor):
     """An MGF value as recorded on the kiln (2026-11-02): the first press
     only stops the alternating; a hold changes the value every 0.5 s after
-    2 s, by 1 four times, then 10 eight times, then 100; a release lands
-    0.1 s late."""
+    2 s, by 1 four times, then 10 eight times, then 100; one more step lands
+    after a release, as on the kiln (released at 799, landed on 809)."""
 
     def __init__(self, value):
         super().__init__(value)
@@ -565,7 +565,7 @@ class _MgfEditor(_ValueEditor):
         return base + sign * moved
 
     def hold_release(self):
-        self.value = self._held_value(self.now + 0.1)
+        self.value = self._held_value(self.now + 0.5)
         self.hold = None
 
 
@@ -601,3 +601,13 @@ def test_mgf_small_change_is_just_taps(monkeypatch):
     sequencer._set_stepped_value(790)
     assert fake.value == 790
     assert all(p[1] > 0 for p in fake.presses)
+
+
+
+def test_mgf_hold_lets_go_a_step_early_so_few_taps_are_left(monkeypatch):
+    # 725 -> 800 on the kiln took a hold and 9 taps (landed on 809); letting
+    # go a step early should leave only a tap or two.
+    sequencer, fake = _mgf_editing(monkeypatch, 725)
+    sequencer._set_stepped_value(800)
+    assert fake.value == 800
+    assert len([p for p in fake.presses if p[1] > 0]) <= 4  # the flash-stopping tap + a few
