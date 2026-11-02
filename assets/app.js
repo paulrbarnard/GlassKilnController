@@ -578,7 +578,8 @@ async function runAction(path, label) {
 }
 
 function stopFiring() {
-  if (!confirm('Stop the current program? This cannot be undone.')) return;
+  // No confirmation: STOP is a safety control and acts at once. (A stopped
+  // firing can't be resumed, but stopping is always the safe direction.)
   // The status shows "Stopping…" until the controller confirms StOP/IdLE,
   // then setFiring returns to the main screen (or shows an error to act on
   // by hand, staying here).

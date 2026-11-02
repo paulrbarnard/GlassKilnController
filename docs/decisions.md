@@ -65,14 +65,31 @@ Dates are when the decision was made, October 2026.
   minutes. That's acceptable latitude, because with slot management
   reprogramming is rare.
 
+## Adjusting Standard firings (MGF)
+
+- **The app switches the controller's MGF option on when a Standard firing
+  has an adjustment**, rather than relying on it being on: with it off the
+  controller skips the adjustment screens and would fire the standard
+  temperature without saying so. MGF then stays on (unadjusted firings just
+  accept the standard values at that pause).
+- **MGF values use their own hold method.** There a held press changes the
+  value every 0.5 s in growing steps (after 2 s: 1 four times, 10 eight
+  times, then 100), not ever faster as on the PRO screens, so the PRO hold
+  overshot to the program's limits. The app taps once (the first press only
+  stops the display alternating), holds, lets go a step early (one more
+  step always lands after a release), and finishes with taps.
+- **The controller keeps an adjustment** as that program's new process
+  temperature (Full Fuse Fast read 725 the next time).
+
 ## Failures and stopping
 
 - **Return the controller to IdLE before every sequence, and after a
   failure**, rather than relying on the user. If it can't get back to IdLE,
   the app says to power-cycle the kiln. A failed write says "Programming
   failed", with Try again.
-- **STOP goes straight back to the home screen** once the controller
-  confirms it. A firing that completes stays on the firing screen until
+- **STOP acts at once, with no "are you sure?"**: it's a safety control,
+  and stopping is always the safe direction. It goes straight back to the
+  home screen once the controller confirms it. A firing that completes stays on the firing screen until
   Done.
 
 ## Temperature, cooling and safety

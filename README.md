@@ -137,7 +137,13 @@ mount and the 8" display):
   Try again). If the controller can't be brought back, the app asks for the
   kiln to be power-cycled.
 
-Not yet done: °F value entry on the kiln and the MGF override flow. Why things are the
+- **Adjusting a Standard firing (MGF)**: a GlassFire profile's process
+  temperature and hold can be adjusted in the app. Starting it switches the
+  controller's MGF option on if needed and enters the values at its pause
+  (holds in steps of 1, 10 and 100, then taps; 725 → 800 °C took about
+  30 s). The controller keeps an adjustment as that program's new value.
+
+Not yet done: °F value entry on the kiln. Why things are the
 way they are: `docs/decisions.md`. See `docs/architecture.md` for what was
 confirmed on hardware and the dead ends: PySide6 doesn't work in the App Lab
 container, and this board's PWM pins are fixed at 500 Hz, so the `Servo`
@@ -165,7 +171,7 @@ pip install -r requirements.txt
 python main.py --mock-bridge --mock-vision
 ```
 
-Real automated coverage of both layers lives in `python/tests/` (153 tests,
+Real automated coverage of both layers lives in `python/tests/` (162 tests,
 run with `pytest` from `python/`) — that's what to extend, not manual runs
 of `main.py`.
 

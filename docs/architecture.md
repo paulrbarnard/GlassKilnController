@@ -131,7 +131,8 @@ and iterate without re-flashing the MCU.
   sequence and after a failure. Values are entered with a watched hold
   (released just short of the target as the display scrolls) and then
   single checked taps, spaced so the GM LT doesn't double-step
-  (`_set_value`). It also writes PRO programs into a slot (`write_program`),
+  (`_set_value`); MGF adjustments use stepped holds (`_set_stepped_value`).
+  It also writes PRO programs into a slot (`write_program`),
   reads them back through Review (`read_program`), and starts a slot
   (`start_slot`).
 
@@ -163,7 +164,8 @@ and iterate without re-flashing the MCU.
   endpoints (`GET/POST/DELETE /api/profiles...`, `POST /api/run/{id}`,
   `/api/stop`, `GET /api/firing`, `/api/kiln_programs/...` (read, import,
   write), `GET /api/kiln_temp`, `GET /api/status`, `POST /api/snapshot`,
-  `/api/settings/...`) and WebSocket pushes (`progress`, `error`, `firing`,
+  `POST /api/record_hold` (records how a held press scrolls on the
+  current screen), `/api/settings/...`) and WebSocket pushes (`progress`, `error`, `firing`,
   `kiln_temp`, `kiln_programs`), built on
   `arduino.app_bricks.web_ui.WebUI`. Confirmed on real hardware:
   `expose_api(method, path, handler)` is **FastAPI** underneath — a
@@ -255,7 +257,7 @@ tested (`python/tests/`). `kiln/sequencer.py` is tested against
 `MockBridge` + `MockVision` fed a scripted state sequence, so the whole
 "what buttons do we press for profile X" logic — and now `web/api.py`'s
 route logic, via a fake `ui` double — can be verified without a kiln, a
-camera, or an Uno Q at all. 153 tests, all hardware-free; see
+camera, or an Uno Q at all. 162 tests, all hardware-free; see
 `python/tests/` for the pattern to extend. Behaviour that depends on the
 real controller (value entry timing, the display's glyphs) was tuned on the
 kiln, with the tools in `scripts/` (see the README).
