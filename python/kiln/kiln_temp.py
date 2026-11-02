@@ -52,8 +52,8 @@ ROOM_MAX_AGE_S = 24 * 3600.0  # room temperature: the lowest cool reading this r
 COOLING_LOG_DIR = Path(__file__).resolve().parent.parent / "state" / "cooling"
 IDLE_HOT_S = 15.0  # how often to read while hot (or not known yet)
 IDLE_COOL_S = 60.0  # ...and once it has cooled
-IDLE_OFF_S = 60.0  # ...and while the kiln is switched off (at 30 s the camera,
-#                    released 30 s after its last read, was never free for the tools)
+IDLE_OFF_S = 30.0  # ...and while the kiln is switched off (the camera is then never
+#                    free for scripts/; use POST /api/snapshot to see what it sees)
 READ_WINDOW_S = 4.0  # long enough to catch the temperature between IdLEs
 COOLING_WINDOW_S = 45 * 60.0  # readings the cooling estimate is fitted to
 COOLING_MIN_SPAN_S = 10 * 60.0  # no estimate until it has cooled this long...

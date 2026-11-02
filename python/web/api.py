@@ -553,6 +553,49 @@ def register_routes(
     def add_temperature():
         return run_exclusive("adding temperature", sequencer.add_temperature)
 
+    def snapshot():
+        """What the camera sees, through the app's own camera (the on-board
+        tools can't open it while the app is reading the display): saves the
+        whole frame and the annotated display area in the container's /tmp
+        (snapshot_frame.jpg, snapshot_roi.jpg) and returns the decoded text
+        and segment levels. For checking alignment after the mount moves."""
+
+        import cv2
+
+        from kiln.vision import build_controller_state, decode_roi, sample_segments, segment_cut
+
+        vision = sequencer.vision
+        if not hasattr(vision, "read_frame"):
+            return {"error": "no camera (mock vision)"}
+        frame = vision.read_frame()
+        if frame is None:
+            return {"error": "camera read failed"}
+        cal = vision.calibration
+        x, y, w, h = cal.roi
+        roi = frame[y : y + h, x : x + w]
+        levels = sample_segments(roi, cal)
+        cut = segment_cut(levels, cal)
+        marked = roi.copy()
+        half = cal.sample_half
+        for (bx, by, bw, bh), digit in zip(cal.digit_boxes, levels):
+            cv2.rectangle(marked, (bx, by), (bx + bw, by + bh), (255, 255, 0), 1)
+            for (px, py), level in zip((*cal.segment_points, cal.dp_point), digit):
+                colour = (0, 255, 0) if cut is not None and level > cut else (0, 0, 255)
+                cv2.rectangle(marked, (bx + px - half, by + py - half), (bx + px + half, by + py + half), colour, 2)
+        full = frame.copy()
+        cv2.rectangle(full, (x, y), (x + w, y + h), (255, 255, 0), 3)
+        cv2.imwrite("/tmp/snapshot_frame.jpg", full)
+        cv2.imwrite("/tmp/snapshot_roi.jpg", marked)
+        text = decode_roi(roi, cal)
+        return {
+            "text": text,
+            "message": getattr(build_controller_state(text).message, "name", None),
+            "cut": cut,
+            "levels": [[round(v) for v in d] for d in levels],
+            "frame": [int(frame.shape[1]), int(frame.shape[0])],
+            "roi": [x, y, w, h],
+        }
+
     def status():
         # busy: what the app is doing at the controller, if anything (for
         # the status view's "Busy: ..." line).
@@ -616,6 +659,7 @@ def register_routes(
     ui.expose_api("POST", "/api/add_temp", add_temperature)
     ui.expose_api("GET", "/api/status", status)
     ui.expose_api("GET", "/api/kiln_temp", kiln_temp.status)
+    ui.expose_api("POST", "/api/snapshot", snapshot)
     ui.expose_api("POST", "/api/settings/mgf", toggle_mgf)
     ui.expose_api("GET", "/api/settings", get_settings)
     ui.expose_api("GET", "/api/settings/controller_unit", controller_unit)
