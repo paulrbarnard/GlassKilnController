@@ -35,13 +35,13 @@ def test_reads_the_temperature_between_idles():
 def test_hot_is_40c_or_104f():
     assert is_hot(40.0, celsius=True) and not is_hot(39.0, celsius=True)
     assert is_hot(104.0, celsius=False) and not is_hot(102.0, celsius=False)
-    reader, _ = make(["  612."])
+    reader, _ = make(["IdLE", "  612."])
     reader.poll()
     assert reader.status()["hot"] is True
 
 
 def test_in_fahrenheit():
-    reader, _ = make(["  98."], celsius=False)
+    reader, _ = make(["IdLE", "  98."], celsius=False)
     reader.poll()
     status = reader.status()
     assert (status["temp"], status["unit"], status["hot"], status["off"]) == (98.0, "F", False, False)
@@ -50,7 +50,7 @@ def test_in_fahrenheit():
 def test_stands_aside_while_the_controller_is_busy():
     # A sequence or firing has the camera: use the firing monitor's reading
     # and don't read the display at all.
-    reader, _ = make(["  31."], busy=True, firing_temp=550.0)
+    reader, _ = make(["IdLE", "  31."], busy=True, firing_temp=550.0)
     assert reader.poll() == 550.0
     assert reader.status()["hot"] is True
     assert reader._vision._index == 0  # the display wasn't read
@@ -64,14 +64,14 @@ def test_a_dark_display_means_the_kiln_is_off():
 
 
 def test_switched_off_hot_keeps_the_last_reading_then_comes_back():
-    reader, published = make(["  312.", ""])  # the dark frame then repeats
+    reader, published = make(["IdLE", "  312.", ""])  # the dark frame then repeats
     reader.poll()
     reader.poll()  # dark: switched off
     status = reader.status()
     assert status["off"] is True and status["temp"] == 312.0 and status["hot"] is True
     reader.poll()  # still off: nothing new to publish
     assert len(published) == 2
-    reader._vision.script = ["  290."]
+    reader._vision.script = ["IdLE", "  290."]
     reader._vision.advance_to(0)
     reader.poll()  # switched back on
     assert reader.status()["off"] is False and reader.status()["temp"] == 290.0
@@ -134,7 +134,7 @@ def test_reader_estimates_after_a_firing_and_starts_over_when_busy():
 
 
 def test_cool_reading_clears_the_estimate_and_sets_room_temperature():
-    reader, _ = make(["  17."])
+    reader, _ = make(["IdLE", "  17."])
     reader._cooling = [(0.0, 300.0)]
     reader.poll()
     assert reader._room_c == 17.0 and reader._cooling == []
@@ -153,7 +153,7 @@ def test_the_firing_time_after_cplt_isnt_a_temperature():
 
 def test_temperature_and_time_in_fahrenheit():
     # °F has no trailing point: "  98" is a temperature, "0.08" a time.
-    reader, _ = make(["0.08", "  98"], celsius=False)
+    reader, _ = make(["IdLE", "0.08", "  98"], celsius=False)
     assert reader.poll() == 98.0
     reader2, published = make(["0.08"], celsius=False)
     assert reader2.poll() is None and published == []
@@ -173,7 +173,7 @@ def test_estimate_doesnt_drift_while_the_reading_sits_on_a_degree():
 def test_room_temperature_survives_a_restart(tmp_path):
     path = tmp_path / "kiln_room.json"
     reader = KilnTemperature(
-        MockVision(script=["  17."]), publish=lambda _: None, celsius=lambda: True,
+        MockVision(script=["IdLE", "  17."]), publish=lambda _: None, celsius=lambda: True,
         busy=lambda: False, firing_temp=lambda: None, room_path=path,
     )
     reader.poll()
@@ -186,15 +186,16 @@ def test_room_temperature_survives_a_restart(tmp_path):
 
 def test_room_temperature_is_the_lowest_recent_cool_reading():
     clock = [0.0]
-    reader, _ = make(["  17."])
+    reader, _ = make(["IdLE", "  17."])
     reader._clock = lambda: clock[0]
     reader.poll()
     assert reader._room_c == 17.0
-    reader._vision.script, reader._vision._index = ["  38."], 0  # passing 38 °C after a firing
+    reader._vision.script, reader._vision._index = ["IdLE", "  38."], 0  # passing 38 °C after a firing
     clock[0] += 3600
     reader.poll()
     assert reader._room_c == 17.0  # still the kiln at rest
     clock[0] += 25 * 3600  # a day later the old reading has gone stale
+    reader._vision.advance_to(0)
     reader.poll()
     assert reader._room_c == 35.0  # (capped below 40)
 
@@ -202,14 +203,23 @@ def test_room_temperature_is_the_lowest_recent_cool_reading():
 def test_cooling_readings_are_logged_for_tuning(tmp_path):
     clock = [1000.0]
     reader = KilnTemperature(
-        MockVision(script=["  60."]), publish=lambda _: None, celsius=lambda: True,
+        MockVision(script=["IdLE", "  60."]), publish=lambda _: None, celsius=lambda: True,
         busy=lambda: False, firing_temp=lambda: None, clock=lambda: clock[0],
         cooling_log_dir=tmp_path,
     )
     reader.poll()
     clock[0] += 15
+    reader._vision.advance_to(0)
     reader.poll()
     [log_file] = list(tmp_path.glob("*.csv"))
     lines = log_file.read_text().splitlines()
     assert lines[0] == "epoch_s,temp_c,room_c,estimated_safe_epoch_s"
     assert lines[1].startswith("1000,60.0,20.0,") and len(lines) == 3
+
+
+def test_a_number_on_a_menu_screen_isnt_the_kiln_temperature():
+    # An MGF process temperature ("°C" alternating with "0718.") must not be
+    # taken for the kiln's: it never alternates with IdLE or CPLt.
+    reader, published = make(["°C  .", "0718.", "°C  .", "0718."])
+    assert reader.poll() is None and published == []
+    assert reader.status()["off"] is False

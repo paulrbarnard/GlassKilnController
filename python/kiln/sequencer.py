@@ -536,13 +536,16 @@ class Sequencer:
             accept=lambda s: s.message is DisplayMessage.READY or s.numeric_value is not None,
         )
         if state.message is not DisplayMessage.READY:
-            # MGF is on: the process temperature, then the hold (H.MM).
-            # Entered like PRO values (watched holds, then checked taps);
-            # ENTER keeps whatever shows.
+            # MGF is on: the process temperature, then the hold (H.MM), each
+            # alternating with its label. Taps only: on these screens the
+            # app couldn't see a held press scrolling, so holds ran to their
+            # limit and overshot (796 -> 515 -> 1204 on the kiln,
+            # 2026-11-02), while taps step one at a time. The first press
+            # only stops the alternating. ENTER keeps whatever shows.
             if temp_override_f is not None:
                 target = int(self._controller_temp(temp_override_f))
                 self._progress(f"adjusting the process temperature to {target}")
-                self._set_value(target)
+                self._set_value(target, taps_only=True)
             else:
                 self._progress("MGF on: keeping the process temperature")
             self._press(Key.ENTER)
@@ -553,7 +556,7 @@ class Sequencer:
             if hold_override_minutes is not None:
                 minutes = int(round(hold_override_minutes))
                 self._progress(f"adjusting the hold to {minutes // 60}:{minutes % 60:02d}")
-                self._set_value(minutes, scale=100)
+                self._set_value(minutes, scale=100, taps_only=True)
             self._press(Key.ENTER)
             self._wait_for_message(DisplayMessage.READY)
 
@@ -748,7 +751,9 @@ class Sequencer:
             raise SequenceError("no value on the display")
         return _steps(state.numeric_value, scale)
 
-    def _set_value(self, target: int, scale: int = 1, max_steps: int = VALUE_ATTEMPTS) -> None:
+    def _set_value(
+        self, target: int, scale: int = 1, max_steps: int = VALUE_ATTEMPTS, taps_only: bool = False
+    ) -> None:
         """Bring the value being edited to ``target``. Big changes use a held
         UP/DOWN, watched and released just short (the controller waits ~2 s,
         then scrolls faster and faster); the last few steps are single taps,
@@ -761,6 +766,10 @@ class Sequencer:
         (bridge.py) adds any cooling pause a coil needs."""
 
         current = self._value(scale)
+        if taps_only:
+            # One tap a step, so allow for the whole distance, plus the
+            # corrections and a first press that only stops the flashing.
+            max_steps = max(max_steps, abs(target - current) + 12)
         last_press: Optional[float] = None  # when UP/DOWN were last let go
         after_hold = False  # the last UP/DOWN press was a hold
         for _ in range(max_steps):
@@ -769,7 +778,7 @@ class Sequencer:
             if delta == 0:
                 return
             key = Key.UP if delta > 0 else Key.DOWN
-            if abs(delta) > TAP_LIMIT:
+            if abs(delta) > TAP_LIMIT and not taps_only:
                 before = current
                 released_at = self._hold_towards(key, target, current, scale)
                 last_press = time.monotonic()

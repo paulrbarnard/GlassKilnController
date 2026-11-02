@@ -36,6 +36,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+from kiln.protocol import DisplayMessage
 from kiln.vision import KilnVision
 
 log = logging.getLogger(__name__)
@@ -201,14 +202,23 @@ class KilnTemperature:
         """The temperature if one shows within READ_WINDOW_S, and whether
         the display was dark the whole time."""
 
+        # At rest the kiln temperature alternates with IdLE (or, after a
+        # firing, with CPLt). A number on a menu screen doesn't, and an MGF
+        # process temperature ("0718.") was once taken for the kiln's, so a
+        # temperature only counts alongside one of those.
         deadline = None  # from the first frame: opening the camera takes ~6 s
         dark = True
+        temp, at_rest = None, False
         while deadline is None or time.monotonic() < deadline:
             state = self._vision.read()
             if deadline is None:
                 deadline = time.monotonic() + READ_WINDOW_S
             if state.temperature is not None:
-                return state.temperature, False
+                temp = state.temperature
+            if state.message in (DisplayMessage.IDLE, DisplayMessage.COMPLETE):
+                at_rest = True
+            if temp is not None and at_rest:
+                return temp, False
             dark = dark and is_dark(state.raw_text)
         return None, dark
 

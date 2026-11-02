@@ -44,13 +44,13 @@ def test_safe_to_open_is_pushed_once_when_a_hot_kiln_cools(monkeypatch):
     monkeypatch.setattr(kt, "READ_WINDOW_S", 0.05)
     safe = []
     reader = KilnTemperature(
-        MockVision(script=["  17."]), publish=lambda _: None, celsius=lambda: True,
+        MockVision(script=["IdLE", "  17."]), publish=lambda _: None, celsius=lambda: True,
         busy=lambda: False, firing_temp=lambda: None, on_safe=safe.append,
     )
     reader.poll()
     assert safe == []  # already cool when the app started: nothing to say
     for text in ("  45.", "  41.", "  39.", "  38."):
-        reader._vision.script, reader._vision._index = [text], 0
+        reader._vision.script, reader._vision._index = ["IdLE", text], 0
         reader.poll()
     assert [s["temp"] for s in safe] == [39.0]
 
@@ -93,6 +93,10 @@ def test_firing_end_pushes(tmp_path, monkeypatch):
     monitor._publish({**base, "phase": "programming", "fired_at": None, "temp": None})
     monitor._publish({**base, "phase": "error", "fired_at": None, "temp": None, "message": "couldn't set the value"})
     assert sent[-1][0] == "Kiln programming failed" and sent[-1][2] == 1
+    monitor._publish({**base, "phase": "programming", "fired_at": None, "temp": None})
+    monitor._publish({**base, "phase": "stopping", "fired_at": None, "temp": None})
+    monitor._publish({**base, "phase": "stopped", "fired_at": None, "temp": 27})
+    assert sent[-1][0] == "Programming stopped" and "Nothing was started" in sent[-1][1]
 
 
 def test_profile_hours_counts_ramps_from_the_kiln_and_holds():

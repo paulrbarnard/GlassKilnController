@@ -152,6 +152,9 @@ def register_routes(
         temp = status.get("temp")
         reading = "" if temp is None else f", kiln {round(temp)}°{status.get('unit', 'C')}"
         phase = status.get("phase")
+        if phase in ("stopped", "ended") and not status.get("fired_at"):
+            notifier.send("Programming stopped", f"Nothing was started ({at}).")
+            return
         if phase == "error" and not status.get("fired_at"):
             notifier.send("Kiln programming failed", status.get("message", ""), priority=1)
             return

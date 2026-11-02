@@ -497,7 +497,7 @@ def test_an_adjusted_glassfire_turns_mgf_on_and_enters_the_values():
     sequencer._enter_from = lambda msg, accept=None: (
         process_prompt if msg is M(Process.FULL_FUSE.value) else build_controller_state("AUto.")
     )
-    sequencer._set_value = lambda target, scale=1: calls.append(("value", target, scale))
+    sequencer._set_value = lambda target, scale=1, taps_only=False: calls.append(("value", target, scale, taps_only))
     sequencer._press = lambda key: calls.append(("press", key))
     sequencer._wait_for = lambda pred, timeout_s=5.0, description="": build_controller_state("0.10.")
     sequencer._wait_for_message = lambda msg, timeout_s=5.0: calls.append(("wait", msg))
@@ -505,9 +505,9 @@ def test_an_adjusted_glassfire_turns_mgf_on_and_enters_the_values():
 
     sequencer.run_glassfire(Speed.SLOW, Process.FULL_FUSE, temp_override_f=1490.0, hold_override_minutes=20)
 
-    assert calls.index(("mgf", True)) < calls.index(("value", 810, 1))
-    assert ("value", 810, 1) in calls  # 1490 °F
-    assert ("value", 20, 100) in calls  # 0:20, stepped in minutes
+    assert calls.index(("mgf", True)) < calls.index(("value", 810, 1, True))
+    assert ("value", 810, 1, True) in calls  # 1490 °F, taps only
+    assert ("value", 20, 100, True) in calls  # 0:20, stepped in minutes
     assert calls[-1] == "start"
 
 
@@ -524,3 +524,11 @@ def test_an_unadjusted_glassfire_leaves_mgf_alone():
     sequencer._start_from_ready = lambda: seen.append("start")
     sequencer.run_glassfire(Speed.SLOW, Process.FULL_FUSE)
     assert seen == ["start"]
+
+
+
+def test_taps_only_never_holds_and_allows_for_the_distance(monkeypatch):
+    sequencer, fake = _editing(monkeypatch, 718)
+    sequencer._set_value(690, taps_only=True)  # 28 steps: more than VALUE_ATTEMPTS-ish margins
+    assert fake.value == 690
+    assert all(p[1] > 0 for p in fake.presses)  # no holds
