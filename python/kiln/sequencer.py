@@ -512,6 +512,12 @@ class Sequencer:
     ) -> None:
         self._progress(f"programming GlassFire: {process.value}/{speed.value}")
         self.goto_idle()
+        adjusted = temp_override_f is not None or hold_override_minutes is not None
+        if adjusted:
+            # The process temperature/hold prompts only appear with MGF on;
+            # with it off the controller goes straight to rEdI and the
+            # adjustment would be silently lost.
+            self._set_mgf(True)
         state = self._enter_from(DisplayMessage.IDLE, accept=lambda s: s.message in _MODE_MESSAGES)
         self._scroll_to(DisplayMessage.AUTO, state=state)
         state = self._enter_from(DisplayMessage.AUTO)
@@ -530,17 +536,24 @@ class Sequencer:
             accept=lambda s: s.message is DisplayMessage.READY or s.numeric_value is not None,
         )
         if state.message is not DisplayMessage.READY:
-            self._progress("MGF active: confirming process temperature/hold")
+            # MGF is on: the process temperature, then the hold (H.MM).
+            # Entered like PRO values (watched holds, then checked taps);
+            # ENTER keeps whatever shows.
             if temp_override_f is not None:
-                self._press(Key.UP)  # stop flashing
-                self._dial_numeric(self._controller_temp(temp_override_f))
+                target = int(self._controller_temp(temp_override_f))
+                self._progress(f"adjusting the process temperature to {target}")
+                self._set_value(target)
+            else:
+                self._progress("MGF on: keeping the process temperature")
             self._press(Key.ENTER)
             self._wait_for(
-                lambda s: s.numeric_value is not None, description="hold time prompt"
+                lambda s: s.message is None and s.numeric_value is not None and s.temperature is None,
+                description="hold time prompt",
             )
             if hold_override_minutes is not None:
-                self._press(Key.UP)
-                self._dial_numeric(hold_override_minutes)
+                minutes = int(round(hold_override_minutes))
+                self._progress(f"adjusting the hold to {minutes // 60}:{minutes % 60:02d}")
+                self._set_value(minutes, scale=100)
             self._press(Key.ENTER)
             self._wait_for_message(DisplayMessage.READY)
 
@@ -989,6 +1002,24 @@ class Sequencer:
             except Exception:  # noqa: BLE001
                 log.warning("couldn't return to IdLE after a failed action")
             raise
+
+    def _set_mgf(self, on: bool) -> None:
+        """Make sure Options > MGF is ``on`` (pressing UP only if it isn't),
+        then back to IdLE. The controller must be at IdLE."""
+
+        want = DisplayMessage.ON if on else DisplayMessage.OFF
+        state = self.select_mode(Mode.OPTIONS)
+        self._scroll_to(DisplayMessage.MGF, state=state)
+        state = self._enter_from(
+            DisplayMessage.MGF,
+            accept=lambda s: s.message in (DisplayMessage.OFF, DisplayMessage.ON),
+        )
+        if state.message is not want:
+            self._progress(f"switching MGF {'on' if on else 'off'}")
+            self._press_until_changed(Key.UP, state)
+            self._wait_for_message(want)
+        self._press(Key.ENTER)
+        self.goto_idle()
 
     def toggle_mgf(self) -> None:
         self._require_idle("toggling MGF")

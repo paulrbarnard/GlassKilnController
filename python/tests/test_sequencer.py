@@ -479,3 +479,48 @@ def test_left_in_a_menu_is_returned_to_idle_automatically():
     Sequencer(bridge=fake, vision=fake)._require_idle("starting")
     assert fake.presses == [(Key.ENTER, LONG_MS)]
     assert fake.screen == "1dLE."
+
+
+def test_an_adjusted_glassfire_turns_mgf_on_and_enters_the_values():
+    # With MGF off the controller skips the process prompts and the
+    # adjustment would be lost, so it's switched on first; the values are
+    # entered like PRO values, in the controller's unit (°C here).
+    from kiln.protocol import DisplayMessage as M
+    from kiln.vision import build_controller_state
+
+    sequencer, bridge = make_sequencer(["IdLE"])
+    calls = []
+    sequencer.goto_idle = lambda: calls.append("idle")
+    sequencer._set_mgf = lambda on: calls.append(("mgf", on))
+    sequencer._scroll_to = lambda msg, state=None: calls.append(("scroll", msg))
+    process_prompt = build_controller_state("0796.")  # MGF on: process temperature shown
+    sequencer._enter_from = lambda msg, accept=None: (
+        process_prompt if msg is M(Process.FULL_FUSE.value) else build_controller_state("AUto.")
+    )
+    sequencer._set_value = lambda target, scale=1: calls.append(("value", target, scale))
+    sequencer._press = lambda key: calls.append(("press", key))
+    sequencer._wait_for = lambda pred, timeout_s=5.0, description="": build_controller_state("0.10.")
+    sequencer._wait_for_message = lambda msg, timeout_s=5.0: calls.append(("wait", msg))
+    sequencer._start_from_ready = lambda: calls.append("start")
+
+    sequencer.run_glassfire(Speed.SLOW, Process.FULL_FUSE, temp_override_f=1490.0, hold_override_minutes=20)
+
+    assert calls.index(("mgf", True)) < calls.index(("value", 810, 1))
+    assert ("value", 810, 1) in calls  # 1490 °F
+    assert ("value", 20, 100) in calls  # 0:20, stepped in minutes
+    assert calls[-1] == "start"
+
+
+def test_an_unadjusted_glassfire_leaves_mgf_alone():
+    from kiln.protocol import DisplayMessage as M
+    from kiln.vision import build_controller_state
+
+    sequencer, bridge = make_sequencer(["IdLE"])
+    seen = []
+    sequencer.goto_idle = lambda: None
+    sequencer._set_mgf = lambda on: seen.append(on)
+    sequencer._scroll_to = lambda msg, state=None: None
+    sequencer._enter_from = lambda msg, accept=None: build_controller_state("rEdI.")
+    sequencer._start_from_ready = lambda: seen.append("start")
+    sequencer.run_glassfire(Speed.SLOW, Process.FULL_FUSE)
+    assert seen == ["start"]
