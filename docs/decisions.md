@@ -72,12 +72,15 @@ Dates are when the decision was made, October 2026.
   controller skips the adjustment screens and would fire the standard
   temperature without saying so. MGF then stays on (unadjusted firings just
   accept the standard values at that pause).
-- **MGF values use their own hold method.** There a held press changes the
-  value every 0.5 s in growing steps (after 2 s: 1 four times, 10 eight
-  times, then 100), not ever faster as on the PRO screens, so the PRO hold
-  overshot to the program's limits. The app taps once (the first press only
-  stops the display alternating), holds, lets go a step early (one more
-  step always lands after a release), and finishes with taps.
+- **MGF values use timed holds, not watched ones.** There a held press
+  changes the value on a fixed timetable: a first step at about 1.65 s,
+  then one every 0.5 s, by 1 four times, then 10 seven or eight times, then
+  100. The camera sees each step about 0.3 s late, which is too late to
+  watch steps of 10 and 100 and let go in time (holds overshot by 100s), so
+  the app works out how long to hold instead: one tap first (it only stops
+  the display alternating), holds of at most 4 x 1 + 6 x 10 (clear of where
+  the 100s start, which varies by a step), then single taps. 700 → 760 °C:
+  one 5.9 s hold landing exactly on 754, six taps, 26 s.
 - **The controller keeps an adjustment** as that program's new process
   temperature (Full Fuse Fast read 725 the next time).
 

@@ -131,7 +131,7 @@ and iterate without re-flashing the MCU.
   sequence and after a failure. Values are entered with a watched hold
   (released just short of the target as the display scrolls) and then
   single checked taps, spaced so the GM LT doesn't double-step
-  (`_set_value`); MGF adjustments use stepped holds (`_set_stepped_value`).
+  (`_set_value`); MGF adjustments use timed holds (`_set_stepped_value`).
   It also writes PRO programs into a slot (`write_program`),
   reads them back through Review (`read_program`), and starts a slot
   (`start_slot`).
@@ -257,7 +257,7 @@ tested (`python/tests/`). `kiln/sequencer.py` is tested against
 `MockBridge` + `MockVision` fed a scripted state sequence, so the whole
 "what buttons do we press for profile X" logic — and now `web/api.py`'s
 route logic, via a fake `ui` double — can be verified without a kiln, a
-camera, or an Uno Q at all. 163 tests, all hardware-free; see
+camera, or an Uno Q at all. 165 tests, all hardware-free; see
 `python/tests/` for the pattern to extend. Behaviour that depends on the
 real controller (value entry timing, the display's glyphs) was tuned on the
 kiln, with the tools in `scripts/` (see the README).

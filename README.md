@@ -143,8 +143,8 @@ mount and the 8" display):
 - **Adjusting a Standard firing (MGF)**: a GlassFire profile's process
   temperature and hold can be adjusted in the app. Starting it switches the
   controller's MGF option on if needed and enters the values at its pause
-  (holds in steps of 1, 10 and 100, then taps; 725 → 800 °C took about
-  30 s). The controller keeps an adjustment as that program's new value.
+  (timed holds, then taps; 700 → 760 °C took 26 s). The controller keeps
+  an adjustment as that program's new value.
 
 Not yet done: °F value entry on the kiln. Why things are the
 way they are: `docs/decisions.md`. See `docs/architecture.md` for what was
@@ -174,7 +174,7 @@ pip install -r requirements.txt
 python main.py --mock-bridge --mock-vision
 ```
 
-Real automated coverage of both layers lives in `python/tests/` (163 tests,
+Real automated coverage of both layers lives in `python/tests/` (165 tests,
 run with `pytest` from `python/`) — that's what to extend, not manual runs
 of `main.py`.
 
