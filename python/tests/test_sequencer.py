@@ -497,7 +497,7 @@ def test_an_adjusted_glassfire_turns_mgf_on_and_enters_the_values():
     sequencer._enter_from = lambda msg, accept=None: (
         process_prompt if msg is M(Process.FULL_FUSE.value) else build_controller_state("AUto.")
     )
-    sequencer._set_value = lambda target, scale=1, taps_only=False: calls.append(("value", target, scale, taps_only))
+    sequencer._set_stepped_value = lambda target, scale=1: calls.append(("value", target, scale))
     sequencer._press = lambda key: calls.append(("press", key))
     sequencer._wait_for = lambda pred, timeout_s=5.0, description="": build_controller_state("0.10.")
     sequencer._wait_for_message = lambda msg, timeout_s=5.0: calls.append(("wait", msg))
@@ -505,9 +505,9 @@ def test_an_adjusted_glassfire_turns_mgf_on_and_enters_the_values():
 
     sequencer.run_glassfire(Speed.SLOW, Process.FULL_FUSE, temp_override_f=1490.0, hold_override_minutes=20)
 
-    assert calls.index(("mgf", True)) < calls.index(("value", 810, 1, True))
-    assert ("value", 810, 1, True) in calls  # 1490 °F, taps only
-    assert ("value", 20, 100, True) in calls  # 0:20, stepped in minutes
+    assert calls.index(("mgf", True)) < calls.index(("value", 810, 1))
+    assert ("value", 810, 1) in calls  # 1490 °F
+    assert ("value", 20, 100) in calls  # 0:20, stepped in minutes
     assert calls[-1] == "start"
 
 
@@ -532,3 +532,72 @@ def test_taps_only_never_holds_and_allows_for_the_distance(monkeypatch):
     sequencer._set_value(690, taps_only=True)  # 28 steps: more than VALUE_ATTEMPTS-ish margins
     assert fake.value == 690
     assert all(p[1] > 0 for p in fake.presses)  # no holds
+
+
+class _MgfEditor(_ValueEditor):
+    """An MGF value as recorded on the kiln (2026-11-02): the first press
+    only stops the alternating; a hold changes the value every 0.5 s after
+    2 s, by 1 four times, then 10 eight times, then 100; a release lands
+    0.1 s late."""
+
+    def __init__(self, value):
+        super().__init__(value)
+        self.flashing = True
+
+    def press(self, key, hold_ms=SHORT_PRESS_MS):
+        self.presses.append((key, hold_ms))
+        if self.flashing:
+            self.flashing = False
+            return
+        self.value += 1 if key is Key.UP else -1
+
+    def hold_start(self, key, max_ms):
+        self.presses.append((key, -max_ms))
+        self.flashing = False
+        self.hold = (key, self.now, self.value)
+
+    def _held_value(self, at):
+        key, started, base = self.hold
+        sign = 1 if key is Key.UP else -1
+        held = at - started
+        steps = int(max(0.0, held - 2.0) / 0.5) + (1 if held >= 2.0 else 0)
+        moved = sum(1 if i < 4 else 10 if i < 12 else 100 for i in range(steps))
+        return base + sign * moved
+
+    def hold_release(self):
+        self.value = self._held_value(self.now + 0.1)
+        self.hold = None
+
+
+def _mgf_editing(monkeypatch, value):
+    import kiln.sequencer as seq
+
+    fake = _MgfEditor(value)
+    for name in ("QUIET_BEFORE_TAP_S", "QUIET_AFTER_HOLD_S", "SETTLE_GAP_S", "MENU_CHANGE_TIMEOUT_S"):
+        monkeypatch.setattr(seq, name, 0.0)
+    monkeypatch.setattr(seq.time, "monotonic", fake.clock)
+    return Sequencer(bridge=fake, vision=fake), fake
+
+
+def test_mgf_temperature_is_held_in_steps_then_tapped(monkeypatch):
+    sequencer, fake = _mgf_editing(monkeypatch, 796)
+    sequencer._set_stepped_value(725)
+    assert fake.value == 725
+    holds = [p for p in fake.presses if p[1] < 0]
+    taps = [p for p in fake.presses if p[1] > 0]
+    assert 1 <= len(holds) <= 2
+    assert len(taps) <= 12  # the flash-stopping tap plus fewer than 10 to finish
+
+
+def test_mgf_big_change_uses_the_hundreds_and_doesnt_overshoot_far(monkeypatch):
+    sequencer, fake = _mgf_editing(monkeypatch, 796)
+    sequencer._set_stepped_value(560)
+    assert fake.value == 560
+    assert len([p for p in fake.presses if p[1] > 0]) <= 12
+
+
+def test_mgf_small_change_is_just_taps(monkeypatch):
+    sequencer, fake = _mgf_editing(monkeypatch, 796)
+    sequencer._set_stepped_value(790)
+    assert fake.value == 790
+    assert all(p[1] > 0 for p in fake.presses)

@@ -85,6 +85,11 @@ SETTLE_GAP_S = 0.4  # two readings this far apart must agree for a value to coun
 # Holds and taps allowed to bring one value to its target (each corrects
 # whatever the last one missed or double counted).
 VALUE_ATTEMPTS = 24
+# MGF values (_set_stepped_value): holds allowed before the last taps, the
+# longest hold, and the biggest step a held press makes there.
+MGF_HOLDS = 4
+MGF_HOLD_MAX_S = 15.0
+MGF_MAX_STEP = 110
 # A watched scroll ignores readings that jump further than
 # SLACK + FACTOR * speed * time since the last good reading (speed at least
 # MIN_RATE steps/s, so the first readings of a hold aren't all refused).
@@ -537,15 +542,14 @@ class Sequencer:
         )
         if state.message is not DisplayMessage.READY:
             # MGF is on: the process temperature, then the hold (H.MM), each
-            # alternating with its label. Taps only: on these screens the
-            # app couldn't see a held press scrolling, so holds ran to their
-            # limit and overshot (796 -> 515 -> 1204 on the kiln,
-            # 2026-11-02), while taps step one at a time. The first press
-            # only stops the alternating. ENTER keeps whatever shows.
+            # alternating with its label. Held presses there change the
+            # value in growing steps (1, 10, 100) rather than ever faster,
+            # so they're entered by _set_stepped_value. ENTER keeps
+            # whatever shows.
             if temp_override_f is not None:
                 target = int(self._controller_temp(temp_override_f))
                 self._progress(f"adjusting the process temperature to {target}")
-                self._set_value(target, taps_only=True)
+                self._set_stepped_value(target)
             else:
                 self._progress("MGF on: keeping the process temperature")
             self._press(Key.ENTER)
@@ -556,7 +560,7 @@ class Sequencer:
             if hold_override_minutes is not None:
                 minutes = int(round(hold_override_minutes))
                 self._progress(f"adjusting the hold to {minutes // 60}:{minutes % 60:02d}")
-                self._set_value(minutes, scale=100, taps_only=True)
+                self._set_stepped_value(minutes, scale=100)
             self._press(Key.ENTER)
             self._wait_for_message(DisplayMessage.READY)
 
@@ -828,6 +832,57 @@ class Sequencer:
         if last is None:
             raise SequenceError("no value on the display")
         return last
+
+    def _set_stepped_value(self, target: int, scale: int = 1) -> None:
+        """Bring an MGF value (process temperature, or hold with ``scale``
+        100) to ``target``. On these screens a held UP/DOWN changes the
+        value every half second, in steps that grow: nothing for 2 s, then
+        4 steps of 1, then 8 of 10, then 100s (recorded on the kiln,
+        2026-11-02). So: one tap to stop the alternating (it changes
+        nothing), holds released once the distance left is less than the
+        current step, then single checked taps for the last few."""
+
+        key = Key.UP if target > self._value(scale) else Key.DOWN
+        self._press(key)  # only stops the alternating
+        time.sleep(QUIET_BEFORE_TAP_S)
+        for _ in range(MGF_HOLDS):
+            self._check_abort()
+            current = self._settled_value(scale)
+            if abs(target - current) < 10:
+                break
+            key = Key.UP if target > current else Key.DOWN
+            released_at = self._hold_in_steps(key, target, current, scale)
+            time.sleep(QUIET_AFTER_HOLD_S)
+            log.info("held %s in steps: %d -> %s (target %d)", key.name, current, released_at, target)
+        self._set_value(target, scale, taps_only=True)
+
+    def _hold_in_steps(self, key: Key, target: int, current: int, scale: int) -> Optional[int]:
+        """Hold ``key`` and release as soon as the distance left to
+        ``target`` is less than the step the value is now changing by (the
+        next step would pass it). Readings that move the wrong way, or by
+        more than one step can, are frames caught mid-change and ignored."""
+
+        sign = 1 if key is Key.UP else -1
+        last, step = current, 1
+        self.bridge.hold_start(key, int(MGF_HOLD_MAX_S * 1000))
+        started = time.monotonic()
+        try:
+            while time.monotonic() - started < MGF_HOLD_MAX_S:
+                self._check_abort()
+                state = self.vision.read_fast()
+                if state.message is not None or state.numeric_value is None:
+                    continue
+                value = _steps(state.numeric_value, scale)
+                moved = (value - last) * sign
+                if moved <= 0 or moved > MGF_MAX_STEP:
+                    continue
+                step = 100 if moved > 50 else 10 if moved > 5 else 1
+                last = value
+                if (target - last) * sign < step:
+                    return last
+            return last
+        finally:
+            self.bridge.hold_release()
 
     def _hold_towards(self, key: Key, target: int, current: int, scale: int) -> Optional[int]:
         """Hold ``key`` while watching the value, and release when it's about
