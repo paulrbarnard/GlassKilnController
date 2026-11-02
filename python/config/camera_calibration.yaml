@@ -17,10 +17,13 @@
 
 # roi refitted on 2026-10-22 after each mount change (best fit to frames
 # of "LoAd.", then "Pro ." on the revised solenoid mount, then "IdLE." on
-# the 4:1 lever mount, 2026-10-25); boxes and points unchanged.
+# the 4:1 lever mount, 2026-10-25, then "CPLt." on the new printed mount
+# with the genuine Pi camera, 2026-11-02: moved 40 px left, 48 px down);
+# boxes and points unchanged. To refit: POST /api/snapshot (saves the frame
+# in the container's /tmp) and search offsets for the text on the display.
 roi:
-  x: 534
-  y: 551
+  x: 494
+  y: 599
   w: 660
   h: 220
 
