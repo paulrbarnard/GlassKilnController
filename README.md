@@ -26,8 +26,9 @@ land correctly via the camera before advancing.
 - **Touchscreen** — profile browser, diagrams, run/monitor screen, shown by
   a kiosk Chromium pointed at the app's own web UI (port 7000); a native
   GUI toolkit was tried first and confirmed unworkable in the App Lab
-  container (see `docs/architecture.md`). Currently a 7" 1024x600 HDMI
-  panel; a Waveshare 8" DSI panel (8-DSI-TOUCH-A) is on order to replace it.
+  container (see `docs/architecture.md`). A Waveshare 8" DSI touchscreen
+  (8-DSI-TOUCH-A) on the Media Carrier, mounted landscape (1280x800, touch
+  rotated to match; see `docs/hardware.md`).
 - **Camera** — a Pi Camera V2 (IMX219) on the Media Carrier, 105 mm from the
   GM LT's red 7-segment display, refocused for that distance; read by a
   segment decoder (`python/kiln/vision.py`,
@@ -135,9 +136,7 @@ October 2026:
   Try again). If the controller can't be brought back, the app asks for the
   kiln to be power-cycled.
 
-Next: the Waveshare 8" DSI touchscreen, once it arrives (enabling DSI in
-the device tree has broken the camera's, so it needs a plan). Not yet done:
-°F value entry on the kiln and the MGF override flow. Why things are the
+Not yet done: °F value entry on the kiln and the MGF override flow. Why things are the
 way they are: `docs/decisions.md`. See `docs/architecture.md` for what was
 confirmed on hardware and the dead ends: PySide6 doesn't work in the App Lab
 container, and this board's PWM pins are fixed at 500 Hz, so the `Servo`

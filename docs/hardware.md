@@ -112,7 +112,48 @@ Recalibrate if the camera mount moves: every box and point is in pixels.
 
 ## Touchscreen
 
-Driven by the Uno Q's Linux side over HDMI, via a plain Chromium browser in
+**The panel (from 2026-11-02): a Waveshare 8" DSI touchscreen
+(8-DSI-TOUCH-A)** on the Media Carrier's DSI connector, with touch (Goodix
+GT9271) over I2C. Enable it with Arduino's tool (the same setting as the
+Arduino IDE's), keeping the camera setting:
+
+```bash
+sudo tar -czf ~/boot-efi-backup.tar.gz -C /boot efi     # back up first
+sudo arduino-linux-config carrier enable media-carrier camera0=type1-2lanes display=8-dsi-touch-a
+sudo sync; sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+md5sum /boot/efi/dtb/qcom/qrb2210-arduino-imola.dtb   # re-read from disk, then
+sudo poweroff                                          # and only then power-cycle
+```
+
+It rewrites `dtb/qcom/qrb2210-arduino-imola.dtb` and drops the USB-C video
+overlay (DSI replaces DisplayPort). It restores Arduino's stock device tree,
+which is fine with the genuine Raspberry Pi camera now fitted; the earlier
+camera, which needed a hand-patched DTB, would have lost its fix.
+
+The panel is portrait-native (800x1280) and mounted landscape:
+
+- `scripts/kiosk.sh` rotates it clockwise (`xrandr --output DSI-1 --rotate
+  right`, giving 1280x800) and starts Chromium with
+  `--force-device-scale-factor=1.25`, so the page (laid out for the old
+  7" panel's 1024x600) fills it as a 1024x640 layout. Without the DSI panel
+  it falls back to the 7" USB-C settings.
+- Touch is rotated to match by `scripts/99-glasskiln-touch-rotate.rules`,
+  installed in `/etc/udev/rules.d/`. Arduino's `90-touchscreen-resize.rules`
+  scales the touch to the portrait panel (`5.2 0 0 0 3.2 0`, needed because
+  the GT9271 comes up with default settings); ours replaces it with that
+  scaling followed by the clockwise turn (`0 3.2 0 -5.2 0 1`). libinput reads
+  it when the device is added, so after installing it restart the desktop
+  (`sudo systemctl restart lightdm`) or reboot.
+
+```bash
+sudo install -m 644 ~/ArduinoApps/glass-kiln-controller/scripts/99-glasskiln-touch-rotate.rules /etc/udev/rules.d/
+sudo systemctl restart lightdm
+```
+
+The kiosk setup below dates from the first panel (a 7" 1024x600 panel on
+USB-C DisplayPort) and still applies, apart from the display mode.
+
+Driven by the Uno Q's Linux side, via a plain Chromium browser in
 kiosk mode pointed at the app's own `web_ui` server (`http://localhost:7000`
 — see docs/architecture.md for why it's a browser and not a native GUI).
 This is genuinely a normal XFCE desktop (`lightdm` + `xfce4-session`)
@@ -200,7 +241,9 @@ an SSH shell doesn't have them by default).
 
 ### Touch input
 
-Confirmed non-functional on the panel currently in hand: it enumerates on
+The 8" DSI panel's touch works (see above). The rest of this section is
+about the first 7" panel, kept for reference. Its touch was confirmed
+non-functional: it enumerates on
 USB (`lsusb` shows `4348:55e0 WinChipHead`) but creates no input device at
 all. That VID:PID with a **vendor-specific USB class** (not HID) is the
 signature of a WCH CH55x/CH57x-series microcontroller sitting in its

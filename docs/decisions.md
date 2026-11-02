@@ -123,8 +123,12 @@ Dates are when the decision was made, October 2026.
   keys, settings, slot map) and `homekit/state/` stay on the board. Check
   for Wi-Fi details and keys before pushing.
 
-## Waiting on
+## The touchscreen
 
-- **The Waveshare 8" DSI touchscreen (8-DSI-TOUCH-A).** It's ordered; the
-  7" HDMI panel stays until it arrives. Enabling DSI in the device tree has
-  broken the camera's, so it needs a plan before it goes in.
+- **A Waveshare 8" DSI touchscreen on the Media Carrier** (fitted
+  2026-11-02), not an HDMI panel through a USB-C adaptor (the user didn't
+  want one). It's mounted landscape, so the kiosk rotates it and touch is
+  rotated to match. The page is scaled 1.25x rather than re-laid out, since
+  the 1024x600 layout fills a 1280x800 screen almost exactly. Enabling DSI
+  restores Arduino's stock device tree; that's fine now because the camera
+  is a genuine Raspberry Pi camera that doesn't need the earlier patched DTB.
