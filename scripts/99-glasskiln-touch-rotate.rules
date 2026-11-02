@@ -1,0 +1,7 @@
+# Glass Kiln Controller: the Waveshare 8" DSI panel (Goodix GT9271 touch) is
+# mounted landscape, with the picture rotated clockwise (xrandr --rotate
+# right, scripts/kiosk.sh). Arduino's 90-touchscreen-resize.rules scales the
+# touch to the portrait panel ("5.2 0 0 0 3.2 0"); this replaces it with
+# that scaling followed by the same clockwise turn, so taps land under the
+# finger. libinput reads it when the device is added (at boot).
+ATTRS{name}=="Goodix Capacitive TouchScreen", ENV{LIBINPUT_CALIBRATION_MATRIX}="0 3.2 0 -5.2 0 1 0 0 1"

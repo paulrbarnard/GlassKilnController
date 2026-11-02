@@ -6,8 +6,16 @@
 # instead of landing on a "can't reach this site" page that never retries.
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# The 7" panel's EDID prefers 1920x1080; force its native 1024x600.
-xrandr --output DP-1 --mode 1024x600 --rotate normal
+# The Waveshare 8" DSI panel is portrait-native (800x1280) and mounted
+# landscape: rotate it clockwise to 1280x800. Touch is rotated to match by
+# scripts/99-glasskiln-touch-rotate.rules (in /etc/udev/rules.d/). Without the
+# DSI panel, the old 7" USB-C panel: its EDID prefers 1920x1080, so force its
+# native 1024x600.
+if xrandr | grep -q "^DSI-1 connected"; then
+  xrandr --output DSI-1 --rotate right
+else
+  xrandr --output DP-1 --mode 1024x600 --rotate normal
+fi
 xset s off
 xset -dpms
 
