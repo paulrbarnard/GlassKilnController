@@ -23,6 +23,14 @@ fi
 xset s off
 xset -dpms
 
+# Hide the mouse pointer: it sat on top of whatever was last touched. It
+# stays hidden for touches and only appears if a real mouse moves it.
+# (apt install unclutter-xfixes; see docs/hardware.md.)
+if command -v unclutter >/dev/null; then
+  pkill -x unclutter
+  unclutter --start-hidden --hide-on-touch --fork
+fi
+
 exec chromium --kiosk --incognito --noerrdialogs --disable-infobars \
   --disable-session-crashed-bubble --force-device-scale-factor="$SCALE" \
   "file://$DIR/kiosk-starting.html"

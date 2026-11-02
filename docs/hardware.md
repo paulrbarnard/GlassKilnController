@@ -145,8 +145,13 @@ The panel is portrait-native (800x1280) and mounted landscape:
   it when the device is added, so after installing it restart the desktop
   (`sudo systemctl restart lightdm`) or reboot.
 
+- The mouse pointer is hidden (it sat on whatever was last touched):
+  `scripts/kiosk.sh` runs `unclutter --start-hidden --hide-on-touch`, so it
+  only appears if a real mouse moves it.
+
 ```bash
 sudo install -m 644 ~/ArduinoApps/glass-kiln-controller/scripts/99-glasskiln-touch-rotate.rules /etc/udev/rules.d/
+sudo apt-get install -y unclutter-xfixes
 sudo systemctl restart lightdm
 ```
 
