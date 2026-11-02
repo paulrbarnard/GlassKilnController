@@ -827,3 +827,18 @@ body.view-only .screen {
 body.view-only .diagram-wrap {
   min-height: 280px;
 }
+
+/* No spin arrows on number fields: on the touchscreen a tap near a field's
+   right edge hit the down arrow and kept repeating it to the minimum (the
+   home-screen timeout went to 0). Numbers are typed on the on-screen
+   number pad (osk.js) instead. */
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
