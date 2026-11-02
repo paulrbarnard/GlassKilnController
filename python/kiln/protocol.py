@@ -74,7 +74,7 @@ class DisplayMessage(Enum):
     HOLD_PROMPT = "HLd"
     IDLE = "IdLE"
     MGF = "MGF"
-    ON = "ON"
+    ON = "On"  # with a lowercase n: MGF's value shows " 0n ." (seen 2026-11-02)
     OFF = "OFF"  # an OPt setting's value (MGF), shown as "0FF"
     POWER_FAILURE = "PF"
     RATE_PROMPT = "rA"

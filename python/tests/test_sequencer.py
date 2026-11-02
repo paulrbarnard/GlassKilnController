@@ -37,7 +37,7 @@ def test_run_glassfire_full_fuse_slow_no_mgf():
     # Exact walkthrough from docs/controller_protocol.md "Run a GlassFire
     # (AUTO) program", assuming MGF is off (straight to rEdI) and the
     # controller already shows the target speed/process on first read.
-    sequencer, bridge = make_sequencer(["IdLE", "AUto", "SLo", "FULL", "rEdI", "ON"])
+    sequencer, bridge = make_sequencer(["IdLE", "AUto", "SLo", "FULL", "rEdI", "On"])
     sequencer.run_glassfire(Speed.SLOW, Process.FULL_FUSE)
     assert bridge.presses == [
         (Key.ENTER, SHORT_PRESS_MS),  # open mode menu (already at IdLE)
@@ -61,7 +61,7 @@ def test_run_glassfire_scrolls_when_not_already_on_target():
             "SLP",
             "FULL",  # one UP scroll: SLP -> FULL
             "rEdI",
-            "ON",
+            "On",
         ]
     )
     sequencer.run_glassfire(Speed.FAST, Process.FULL_FUSE)

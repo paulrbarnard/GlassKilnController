@@ -177,3 +177,15 @@ def test_every_vocabulary_token_has_glyphs_and_a_unique_pattern():
 )
 def test_celsius_indicator(raw, celsius):
     assert build_controller_state(raw).shows_celsius is celsius
+
+
+
+def test_on_is_drawn_with_a_lowercase_n():
+    # The GM LT shows MGF's "On" as " 0n ." (seen on the kiln, 2026-11-02);
+    # with N guessed as "abcef" it went unrecognised and the app thought UP
+    # hadn't changed the setting.
+    from kiln.protocol import DisplayMessage
+    from kiln.vision import build_controller_state
+
+    assert build_controller_state(" 0n .").message is DisplayMessage.ON
+    assert build_controller_state("0FF .").message is DisplayMessage.OFF
