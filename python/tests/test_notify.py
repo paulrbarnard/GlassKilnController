@@ -65,19 +65,19 @@ def test_firing_end_pushes(tmp_path, monkeypatch):
 
     sent = []
     monkeypatch.setattr(api, "Notifier", lambda path: type("N", (), {"send": lambda self, t, m, priority=0: sent.append((t, m, priority))})())
+    # Capture the firing monitor and temperature reader this test's routes
+    # create (their hooks decide the pushes).
+    made = {}
+    real_monitor, real_reader = api.FiringMonitor, api.KilnTemperature
+    monkeypatch.setattr(api, "FiringMonitor", lambda *a, **k: made.setdefault("monitor", real_monitor(*a, **k)))
+    monkeypatch.setattr(api, "KilnTemperature", lambda *a, **k: made.setdefault("reader", real_reader(*a, **k)))
     sequencer = Sequencer(bridge=MockBridge(press_delay_s=0.0), vision=MockVision(script=["IdLE"]))
     library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
     ui = FakeUI()
     api.register_routes(ui, sequencer, library, settings_path=tmp_path / "settings.json")
-    # Drive the firing monitor's publish hook (where the push is decided)
-    # with the statuses a firing goes through.
-    import gc
-    from kiln.firing import FiringMonitor
-
-    monitor = next(o for o in gc.get_objects() if isinstance(o, FiringMonitor) and o._publish.__name__ == "publish_firing")
+    monitor, reader = made["monitor"], made["reader"]
     base = {"profile_name": "Full fuse", "profile_id": "full_fuse_slow", "unit": "C", "fired_at": 1.0, "ended_at": 1793022095.0, "message": ""}
     monitor._publish({**base, "phase": "programming", "temp": None})
-    reader = next(o for o in gc.get_objects() if type(o).__name__ == "KilnTemperature" and o._on_safe is not None)
     reader._record(21.0)  # the home-screen reader's last reading before the start
     monitor._publish({**base, "phase": "firing", "temp": None})
     monitor._publish({**base, "phase": "firing", "temp": 300})  # still firing: no second push

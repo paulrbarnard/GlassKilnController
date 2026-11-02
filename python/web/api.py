@@ -34,6 +34,7 @@ from kiln.notify import CONFIG_PATH as NOTIFY_PATH
 from kiln.notify import Notifier
 from kiln.profiles import Profile, ProfileKind, ProfileLibrary
 from kiln.programs import same_segments
+from kiln.protocol import Key
 from kiln.sequencer import ProgramMismatch, Sequencer, SequenceAborted, SequenceError
 from kiln.slots import DEFAULT_PATH as SLOTS_PATH
 from kiln.slots import KilnSlots
@@ -599,6 +600,49 @@ def register_routes(
             "roi": [x, y, w, h],
         }
 
+    def record_hold(body: dict | None = None):
+        """Hold a key on whatever screen the controller is on and record
+        every reading while it scrolls, for working out how held presses
+        behave on a screen (as scripts/scroll_profile.py did for PRO values,
+        but inside the app, which holds the camera while the controller is
+        in a menu). Body: {"key": "UP"|"DOWN", "ms": hold length, "tap_first":
+        true to tap once first (MGF values only stop flashing on the first
+        press)}. Runs in the background; writes /tmp/hold_record.csv in the
+        container (seconds since the hold started, raw text, value)."""
+
+        import csv
+
+        body = body or {}
+        key = Key[body.get("key", "DOWN")]
+        ms = int(body.get("ms", 4000))
+        if not 500 <= ms <= 15000:
+            return {"error": "ms must be 500-15000"}
+
+        def task() -> None:
+            if body.get("tap_first"):
+                sequencer.bridge.press(key)
+                time.sleep(2.0)
+            rows = []
+            start = time.monotonic()
+            sequencer.bridge.hold_start(key, ms + 500)
+            try:
+                while time.monotonic() - start < ms / 1000:
+                    state = sequencer.vision.read_fast()
+                    rows.append((round(time.monotonic() - start, 3), state.raw_text, state.numeric_value))
+            finally:
+                sequencer.bridge.hold_release()
+            end = time.monotonic()
+            while time.monotonic() - end < 2.0:  # how far it runs on after release
+                state = sequencer.vision.read_fast()
+                rows.append((round(time.monotonic() - start, 3), state.raw_text, state.numeric_value))
+            with open("/tmp/hold_record.csv", "w", newline="") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(["seconds", "raw", "value"])
+                writer.writerows(rows)
+            push_progress(f"recorded a {ms} ms {key.name} hold: {len(rows)} readings")
+
+        return run_exclusive(f"recording a {key.name} hold", task)
+
     def status():
         # busy: what the app is doing at the controller, if anything (for
         # the status view's "Busy: ..." line).
@@ -663,6 +707,7 @@ def register_routes(
     ui.expose_api("GET", "/api/status", status)
     ui.expose_api("GET", "/api/kiln_temp", kiln_temp.status)
     ui.expose_api("POST", "/api/snapshot", snapshot)
+    ui.expose_api("POST", "/api/record_hold", record_hold)
     ui.expose_api("POST", "/api/settings/mgf", toggle_mgf)
     ui.expose_api("GET", "/api/settings", get_settings)
     ui.expose_api("GET", "/api/settings/controller_unit", controller_unit)
