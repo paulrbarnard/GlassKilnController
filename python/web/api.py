@@ -654,7 +654,23 @@ def register_routes(
         return run_exclusive("toggling MGF", sequencer.toggle_mgf)
 
     def get_settings():
-        return {"temperature_scale": settings.temperature_scale}
+        return {
+            "temperature_scale": settings.temperature_scale,
+            "home_after_minutes": settings.home_after_minutes,
+        }
+
+    def set_home_after(body: dict):
+        """How many minutes without a touch before the touchscreen goes back
+        to the home screen (0 = never). Only the page acts on it."""
+
+        from kiln.settings import clamp_home_after
+
+        try:
+            settings.home_after_minutes = clamp_home_after(int(body.get("minutes")))
+        except (TypeError, ValueError):
+            return {"error": "minutes must be a whole number"}
+        settings.save(settings_path)
+        return get_settings()
 
     def controller_unit():
         """Which unit the GM LT itself is in, read from its °C indicator
@@ -712,6 +728,7 @@ def register_routes(
     ui.expose_api("GET", "/api/settings", get_settings)
     ui.expose_api("GET", "/api/settings/controller_unit", controller_unit)
     ui.expose_api("POST", "/api/settings/scale", set_temperature_scale)
+    ui.expose_api("POST", "/api/settings/home_after", set_home_after)
     ui.expose_api("POST", "/api/settings/reset", factory_reset)
     return kiln_temp
 

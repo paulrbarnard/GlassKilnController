@@ -92,6 +92,14 @@ Dates are when the decision was made, October 2026.
   home screen once the controller confirms it. A firing that completes stays on the firing screen until
   Done.
 
+## The touchscreen left alone
+
+- **After a set time without a touch (Settings; default 30 minutes, 0 =
+  never) the touchscreen goes back to the home screen**, dropping anything
+  half done: an unsaved edit, an open picker or keyboard. Not while a
+  firing is running, when the firing screen is what matters. It only
+  changes the screen; nothing is pressed on the kiln.
+
 ## Temperature, cooling and safety
 
 - **The home screen always shows the kiln temperature.** It's red with

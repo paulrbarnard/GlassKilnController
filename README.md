@@ -113,6 +113,9 @@ mount and the 8" display):
   estimate when it will read below 40 °C (shown on the home screen and in a
   pop-up on the finished firing screen, revised with every reading;
   `python/kiln/kiln_temp.py`).
+- **Back to the home screen**: after a set time without a touch (Settings,
+  default 30 minutes), the touchscreen returns to the home screen and drops
+  unfinished edits; not while a firing is running.
 - **Status page**: `http://<board>:7000/?view` shows the same status
   read-only on any device on the home network (Idle / Programming / Firing
   / Busy / Kiln off, the firing screen during a firing, the temperature and
@@ -171,7 +174,7 @@ pip install -r requirements.txt
 python main.py --mock-bridge --mock-vision
 ```
 
-Real automated coverage of both layers lives in `python/tests/` (162 tests,
+Real automated coverage of both layers lives in `python/tests/` (163 tests,
 run with `pytest` from `python/`) — that's what to extend, not manual runs
 of `main.py`.
 

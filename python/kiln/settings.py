@@ -1,4 +1,6 @@
-"""App settings that persist on the board: currently the temperature unit.
+"""App settings that persist on the board: the temperature unit, and how
+long the touchscreen waits with no activity before going back to the home
+screen.
 
 Stored as JSON in python/state/ (not in git, and skipped by
 scripts/deploy.sh like the user profiles), so a redeploy doesn't reset them.
@@ -27,6 +29,9 @@ class AppSettings:
     # "C" or "F". Celsius by default: it's what this build's owner uses, and
     # what the controller was set to when the app was first run against it.
     temperature_scale: str = "C"
+    # Minutes with no touches before the touchscreen goes back to the home
+    # screen, dropping anything half done (0 = never).
+    home_after_minutes: int = 30
 
     @property
     def celsius(self) -> bool:
@@ -42,7 +47,11 @@ class AppSettings:
             log.warning("unreadable settings at %s (%s); using defaults", path, exc)
             return cls()
         scale = str(data.get("temperature_scale", "C")).upper()
-        return cls(temperature_scale=scale if scale in ("C", "F") else "C")
+        try:
+            minutes = clamp_home_after(int(data.get("home_after_minutes", 30)))
+        except (TypeError, ValueError):
+            minutes = 30
+        return cls(temperature_scale=scale if scale in ("C", "F") else "C", home_after_minutes=minutes)
 
     def save(self, path: Path = DEFAULT_PATH) -> None:
         path = Path(path)
@@ -50,6 +59,12 @@ class AppSettings:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(asdict(self), indent=2) + "\n", encoding="utf-8")
         tmp.replace(path)
+
+
+def clamp_home_after(minutes: int) -> int:
+    """0 (never) or 1-240 minutes."""
+
+    return 0 if minutes <= 0 else min(minutes, 240)
 
 
 def f_to_c(temp_f: float) -> float:

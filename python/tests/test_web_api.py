@@ -180,7 +180,7 @@ def test_temperature_unit_is_saved_only_after_the_controller_changes(tmp_path):
     settings_path = tmp_path / "settings.json"
     ui = FakeUI()
     register_routes(ui, sequencer, library, AppSettings(), settings_path)
-    assert ui.call("GET", "/api/settings") == {"temperature_scale": "C"}
+    assert ui.call("GET", "/api/settings")["temperature_scale"] == "C"
     assert sequencer.controller_celsius is True
 
     calls = []
@@ -188,7 +188,7 @@ def test_temperature_unit_is_saved_only_after_the_controller_changes(tmp_path):
     assert ui.call("POST", "/api/settings/scale", body={"celsius": False})["ok"] is True
     _wait_for_threads()
     assert calls == [False]
-    assert ui.call("GET", "/api/settings") == {"temperature_scale": "F"}
+    assert ui.call("GET", "/api/settings")["temperature_scale"] == "F"
     assert AppSettings.load(settings_path).temperature_scale == "F"
     assert ("settings", {"temperature_scale": "F"}) in ui.messages
 
@@ -198,7 +198,7 @@ def test_temperature_unit_is_saved_only_after_the_controller_changes(tmp_path):
     sequencer.set_temperature_scale = refuse
     ui.call("POST", "/api/settings/scale", body={"celsius": True})
     _wait_for_threads()
-    assert ui.call("GET", "/api/settings") == {"temperature_scale": "F"}  # unchanged
+    assert ui.call("GET", "/api/settings")["temperature_scale"] == "F"  # unchanged
     assert AppSettings.load(settings_path).temperature_scale == "F"
     assert any(event == "error" and "IdLE" in data["message"] for event, data in ui.messages)
 
@@ -306,3 +306,19 @@ def test_home_screen_kiln_temperature(tmp_path, monkeypatch):
     assert reader.poll() == 31.0  # through the real busy check, as the app runs it
     reading = ui.call("GET", "/api/kiln_temp")
     assert reading["temp"] == 31.0 and reading["hot"] is False and reading["off"] is False
+
+
+
+def test_home_after_minutes_setting(tmp_path):
+    from kiln.settings import AppSettings
+
+    sequencer = Sequencer(bridge=MockBridge(press_delay_s=0.0), vision=MockVision(script=["IdLE"]))
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    ui = FakeUI()
+    register_routes(ui, sequencer, library, settings_path=tmp_path / "settings.json")
+    assert ui.call("GET", "/api/settings")["home_after_minutes"] == 30
+    assert ui.call("POST", "/api/settings/home_after", body={"minutes": 10})["home_after_minutes"] == 10
+    assert ui.call("POST", "/api/settings/home_after", body={"minutes": 999})["home_after_minutes"] == 240
+    assert ui.call("POST", "/api/settings/home_after", body={"minutes": 0})["home_after_minutes"] == 0
+    assert "error" in ui.call("POST", "/api/settings/home_after", body={"minutes": "soon"})
+    assert AppSettings.load(tmp_path / "settings.json").home_after_minutes == 0  # saved

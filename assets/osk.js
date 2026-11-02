@@ -108,6 +108,8 @@
     if (isTextTarget(document.activeElement)) document.activeElement.blur();
   }
 
+  window.oskHide = hide; // for app.js going back to the home screen
+
   // Keep focus on the field while a key is tapped.
   osk.addEventListener('mousedown', (e) => e.preventDefault());
   osk.addEventListener('click', (e) => {

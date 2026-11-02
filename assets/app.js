@@ -892,10 +892,62 @@ function applyTempUnit(unit) {
   // they pick the new unit up from there.
 }
 
+// -- Back to the home screen after no activity ----------------------------------
+// After Settings' "Return to the home screen after N minutes" without a touch
+// (default 30, 0 = never), the touchscreen goes back to the home screen,
+// dropping anything half done: an unsaved edit, an open picker or keyboard.
+// Not while a firing is running (the firing screen is what matters then),
+// and it only changes the screen: it never presses anything on the kiln.
+let homeAfterMinutes = 30;
+let lastActivity = Date.now();
+
+['pointerdown', 'keydown', 'touchstart'].forEach((type) =>
+  document.addEventListener(type, () => (lastActivity = Date.now()), { capture: true, passive: true })
+);
+
+function backToHomeIfIdle() {
+  if (VIEW_ONLY || !homeAfterMinutes || firingActive()) return;
+  if (Date.now() - lastActivity < homeAfterMinutes * 60000) return;
+  lastActivity = Date.now();
+  if (document.getElementById('screen-home').classList.contains('active')) return;
+  closeSendPicker(); // resolves a pending "which profile to replace?" as cancelled
+  if (window.oskHide) window.oskHide();
+  editingProfileId = null;
+  pendingReplaceId = null;
+  goHome();
+}
+
+setInterval(backToHomeIfIdle, 15000);
+
+function applyHomeAfter(minutes) {
+  homeAfterMinutes = Number.isFinite(minutes) ? minutes : 30;
+  document.getElementById('home-after-input').value = homeAfterMinutes;
+}
+
+async function saveHomeAfter() {
+  const minutes = parseInt(document.getElementById('home-after-input').value, 10);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    alert('Enter a number of minutes (0 = never).');
+    return;
+  }
+  try {
+    const settings = await api('POST', '/api/settings/home_after', { minutes });
+    applyHomeAfter(settings.home_after_minutes);
+    showToast(
+      settings.home_after_minutes
+        ? `Back to the home screen after ${settings.home_after_minutes} min without a touch.`
+        : 'The screen will stay where it is.'
+    );
+  } catch (e) {
+    alert(`Could not save: ${e.message}`);
+  }
+}
+
 async function loadSettings() {
   try {
     const settings = await api('GET', '/api/settings');
     applyTempUnit(settings.temperature_scale);
+    applyHomeAfter(settings.home_after_minutes);
   } catch (e) {
     console.warn('settings unavailable; showing °C', e);
   }
@@ -937,6 +989,7 @@ document.getElementById('settings-btn').addEventListener('click', () => {
   refreshBridgeStatus();
   checkControllerUnit();
 });
+document.getElementById('home-after-save-btn').addEventListener('click', saveHomeAfter);
 document.getElementById('kiln-programs-btn').addEventListener('click', () => {
   showScreen('screen-kiln');
   loadKilnPrograms();
