@@ -85,13 +85,16 @@ SETTLE_GAP_S = 0.4  # two readings this far apart must agree for a value to coun
 # Holds and taps allowed to bring one value to its target (each corrects
 # whatever the last one missed or double counted).
 VALUE_ATTEMPTS = 24
-# MGF values (_set_stepped_value): a held press's timetable there, recorded
-# on the kiln (2026-11-02): first step at 1.95 s, then one every 0.49 s, by 1
-# four times, then 10 eight times, then 100.
-MGF_FIRST_STEP_S = 1.95
-MGF_STEP_S = 0.49
-MGF_STEP_SIZES = [1] * 4 + [10] * 8 + [100] * 12
-MGF_HOLDS = 3  # timed holds before the last taps
+# MGF values (_set_stepped_value): a held press's timetable there, measured
+# on the kiln (2026-11-02): first step at about 1.65 s, then one every 0.5 s
+# (the camera sees each about 0.3 s later: a 7.58 s hold made 13 steps), by
+# 1 four times, then 10 seven or eight times, then 100. Where the 100s start
+# isn't fixed, so holds stop two ten-steps short of it: at most 4 x 1 +
+# 6 x 10 = 64 a hold.
+MGF_FIRST_STEP_S = 1.65
+MGF_STEP_S = 0.50
+MGF_STEP_SIZES = [1] * 4 + [10] * 6
+MGF_HOLDS = 8  # timed holds before the last taps (64 each)
 
 
 def mgf_steps_within(distance: int) -> int:
