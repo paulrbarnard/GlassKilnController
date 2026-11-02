@@ -41,9 +41,8 @@ from kiln.settings import f_to_c, rate_f_to_c
 log = logging.getLogger(__name__)
 
 # Generic timeouts for prompts the manual doesn't give an explicit window
-# for (mode menu, speed/process selection, rEdI, ON, ...). These are
-# deliberately generous; TODO(hardware): tighten once real controller
-# latency is measured.
+# for (mode menu, speed/process selection, rEdI, ON, ...). Deliberately
+# generous: on the kiln a menu change shows within about a second.
 DEFAULT_TIMEOUT_S = 5.0
 MAX_MENU_SCROLL_STEPS = 8
 # A menu press normally shows within ~1 s; after this long, assume the
@@ -348,10 +347,9 @@ class Sequencer:
         press until within ``tolerance``. Used for MGF temp/hold entry and
         PRO-mode rate/temp/hold entry (pp.16-19).
 
-        TODO(hardware): the manual notes holding UP/DOWN accelerates the
-        rate of change (p.10) — once real timing is known, use held presses
-        for large deltas and single taps near the target instead of always
-        single-stepping, which will be slow for e.g. a 1465°F entry.
+        Single-steps, so it's slow for big changes. PRO program entry uses
+        _set_value instead (watched holds, then single checked taps); this
+        is left for the MGF override, which hasn't been tried on the kiln.
         """
 
         state = self._wait_for(
@@ -973,12 +971,9 @@ class Sequencer:
 
     # -- OPTIONS mode (p.22) --------------------------------------------------
     #
-    # TODO(hardware): the manual (p.22) describes the OPTIONS flow generically
-    # ("select the feature you wish to edit... toggle to your selection") but
-    # doesn't spell out MGF's/CHG°'s own on/off display text as precisely as
-    # the AUTO/PRO flows. The scroll-then-press-UP toggle below is a
-    # best-effort reading of that description; verify the actual prompt
-    # sequence against real hardware and tighten this once confirmed.
+    # The manual (p.22) describes the OPTIONS flow generically. CHG° (°C/°F)
+    # has been verified on the kiln (IdLE > OPt > CHG° > °C > IdLE, checked
+    # by the °C decimal point); the MGF toggle hasn't been tried yet.
 
     def _backing_out_on_failure(self, action: Callable[[], None]) -> None:
         """Run an Options action; if it fails partway, return the controller

@@ -1,10 +1,10 @@
 # Architecture
 
 Everything in this document is confirmed by deploying to and running on
-real hardware (an Uno Q named "Steffi"), not just read from documentation —
-see the git history around the "web_ui brick" and "RoboServo" commits for
-the trail of live tests (curl round trips, real compiles, a real RPC call
-into the sketch) that pinned down each API surface below.
+real hardware (an Uno Q named "Steffi") operating the kiln, not just read
+from documentation. The git history has the trail of live tests that
+pinned down each API surface below. Why things are the way they are:
+`docs/decisions.md`.
 
 ## Split across the Uno Q
 
@@ -36,11 +36,17 @@ assets/               # static frontend served by the web_ui brick
 ```
 
 **Everything that decides what to do lives in Python.** The sketch is
-deliberately dumb: it exposes `press_button(which, hold_ms)`,
-`configure_solenoid(which, kick_ms, hold_duty)`, and `ping()`, and does
-nothing else. This keeps the real-time side trivial to verify (three solenoids, three
-functions) and keeps all the interesting logic — protocol sequencing,
-vision, profile authoring — in Python where it's easier to test, version,
+deliberately dumb: it exposes `press_button(which, hold_ms)` (a timed
+press), `press_hold(which, max_ms)` / `press_release()` (a held press the
+Python side ends when the display reaches a value, with a safety stop at
+`max_ms`), `configure_solenoid` / `configure_long_hold` (drive settings,
+pushed from `python/config/solenoid_calibration.yaml` at start-up) and
+`ping()`. Every press is a short full-power kick then a reduced PWM hold,
+and the sketch refuses a press that would take a coil past its heat budget
+(the solenoids are rated 5% duty at 12 V); the Python side keeps the same
+budget and waits rather than being refused. This keeps the real-time side
+small enough to verify and keeps all the interesting logic (protocol
+sequencing, vision, profiles) in Python where it's easier to test, version,
 and iterate without re-flashing the MCU.
 
 ```
@@ -77,8 +83,9 @@ and iterate without re-flashing the MCU.
   is built from. This is the file to update if a future manual revision
   changes anything.
 
-- **`kiln/bridge.py`** — thin RPC client wrapping calls to the sketch's
-  `press_button`/`configure_solenoid`/`ping`. Confirmed on real hardware that
+- **`kiln/bridge.py`** — thin RPC client wrapping calls to the sketch
+  (presses, held presses, drive settings, `ping`), plus the per-coil heat
+  budget (`HeatBudget`). Confirmed on real hardware that
   `arduino.app_utils.Bridge.call(name, *args)` on the Python side is
   **synchronous and returns the value directly** — unlike the sketch-side
   C++ `Bridge.call("name").result(var)` pattern, there's no `.result()`.
@@ -91,10 +98,17 @@ and iterate without re-flashing the MCU.
   plain `opencv-python` — confirmed on real hardware that the App Lab
   container lacks `libGL.so.1`, which regular opencv's GUI support needs
   and this app never uses anyway (see "Container is a stripped image"
-  below). Camera ROI/ segment-thresholding is still a `TODO(hardware)`
-  pending the physical build — see calibration notes in `docs/hardware.md`.
-  `MockVision` lets the sequencer be developed/tested against a scripted
-  sequence of states instead of a real camera.
+  below). It samples each segment's brightness inside a fixed display area
+  (`python/config/camera_calibration.yaml`), and a reading only counts once
+  two frames agree (the display alternates, e.g. IdLE with the
+  temperature). `ControllerState.temperature` only accepts a number with no
+  point between its digits (a time like "0.08" isn't a temperature); the
+  last digit's point is the °C indicator. The camera is opened on demand
+  and released 30 s after its last read. `POST /api/snapshot` saves what
+  the camera sees, through the app's own camera, for refitting the display
+  area after the mount moves (see `docs/hardware.md`). `MockVision` lets
+  the sequencer be developed/tested against a scripted sequence of states
+  instead of a real camera.
 
 - **`kiln/profiles.py`** — the human-facing notion of a "firing profile":
   either a reference to a built-in GlassFire (process × speed, optionally
@@ -113,12 +127,44 @@ and iterate without re-flashing the MCU.
   out to `IdLE` via the universal escape (`hold ENTER 4s`) and restarts the
   sequence rather than guessing. Surfaces progress back to the UI via a
   callback, and immediately halts and surfaces `Err1`/`ErrF`/`ErrD`/`FAIL`
-  if vision ever reads one.
+  if vision ever reads one. It returns the controller to IdLE before every
+  sequence and after a failure. Values are entered with a watched hold
+  (released just short of the target as the display scrolls) and then
+  single checked taps, spaced so the GM LT doesn't double-step
+  (`_set_value`). It also writes PRO programs into a slot (`write_program`),
+  reads them back through Review (`read_program`), and starts a slot
+  (`start_slot`).
+
+- **`kiln/slots.py`** — the app's map of what's in each of the kiln's five
+  PRO slots and how often each profile has been fired. Starting a profile
+  that isn't on the kiln picks the slot to overwrite (unknown, then stale,
+  then least fired, then least recently fired). `kiln/programs.py` parses
+  a slot's Review screens into segments and compares programs.
+
+- **`kiln/firing.py`** — the firing monitor: from Start until the firing
+  ends it follows the phases (programming, firing, stopping, then complete,
+  stopped, ended or error), reads the temperature every few seconds and
+  keeps the trace for the firing screen.
+
+- **`kiln/kiln_temp.py`** — the kiln temperature whenever nothing else is
+  using the controller (the module hides the kiln's own display): hot at
+  40 °C / 104 °F, Off when the display is dark, and after a firing the
+  cooling estimate (Newton's law fitted to recent readings). Each cooling is
+  logged to `state/cooling/`.
+
+- **`kiln/notify.py`** — push notifications through Pushover (firing
+  started, finished, error, programming failed, safe to open). The keys are
+  only in `state/notify.json` on the board.
+
+- **`kiln/settings.py`** — app settings (the temperature unit, MGF), kept
+  in `state/settings.json` on the board.
 
 - **`web/api.py`** — `register_routes(ui, sequencer, library)` wires REST
   endpoints (`GET/POST/DELETE /api/profiles...`, `POST /api/run/{id}`,
-  `/api/stop`, `/api/skip`, `/api/add_time`, `/api/add_temp`,
-  `/api/settings/...`) and a `progress`/`error` WebSocket push, built on
+  `/api/stop`, `GET /api/firing`, `/api/kiln_programs/...` (read, import,
+  write), `GET /api/kiln_temp`, `GET /api/status`, `POST /api/snapshot`,
+  `/api/settings/...`) and WebSocket pushes (`progress`, `error`, `firing`,
+  `kiln_temp`, `kiln_programs`), built on
   `arduino.app_bricks.web_ui.WebUI`. Confirmed on real hardware:
   `expose_api(method, path, handler)` is **FastAPI** underneath — a
   `{param}` path segment binds to a same-named handler argument, and a POST
@@ -127,11 +173,20 @@ and iterate without re-flashing the MCU.
   with a fake double and no App Lab runtime (`python/tests/test_web_api.py`).
   Every route that triggers real controller interaction runs it on its own
   background thread — a firing can run for hours and a request handler must
-  never block for that duration.
+  never block for that duration — and only one controller action runs at a
+  time (`run_exclusive`). It returns the kiln-temperature reader for
+  `main.py` to start.
+
+- **`homekit/`** — not part of the App Lab app: a HAP-python companion in
+  its own docker compose project (HomeKit needs host networking for mDNS,
+  which App Lab containers don't have). It polls `/api/kiln_temp` and
+  `/api/firing` and shows the kiln in Apple Home as a heater plus a "Kiln
+  safe to open" sensor.
 
 - **`assets/`** — the static frontend the `web_ui` brick serves. Plain
-  JS/fetch/socket.io, no framework (five simple views don't need a build
-  step). `diagrams.js` is a direct port of the ramp/hold/cool diagram math
+  JS/fetch/socket.io, no framework (a handful of views don't need a build
+  step). The same page serves the kiosk and any browser on the network;
+  `?view` makes it a read-only status page. `diagrams.js` is a direct port of the ramp/hold/cool diagram math
   that used to live in a PySide6 `QPainter` widget — see "What didn't work"
   below for why that widget doesn't exist anymore.
 
@@ -189,8 +244,8 @@ except by changing what's on its own display. Treating vision as the only
 source of truth for "what state is the controller actually in" — rather than
 assuming a press worked because we sent it — is what makes it safe to
 automate a kiln we don't control electrically: worst case, the sequencer
-gets confused, bails to `IdLE` via the 4-second `ENTER` hold, and a human
-notices nothing started. That's a far better failure mode than a
+gets confused, bails to `IdLE` via a 5-second `ENTER` hold, and reports
+that nothing started. That's a far better failure mode than a
 mis-sequenced press silently landing on the wrong prompt.
 
 ## Testability
@@ -200,5 +255,7 @@ tested (`python/tests/`). `kiln/sequencer.py` is tested against
 `MockBridge` + `MockVision` fed a scripted state sequence, so the whole
 "what buttons do we press for profile X" logic — and now `web/api.py`'s
 route logic, via a fake `ui` double — can be verified without a kiln, a
-camera, or an Uno Q at all. 17 tests, all hardware-free; see
-`python/tests/` for the pattern to extend.
+camera, or an Uno Q at all. 153 tests, all hardware-free; see
+`python/tests/` for the pattern to extend. Behaviour that depends on the
+real controller (value entry timing, the display's glyphs) was tuned on the
+kiln, with the tools in `scripts/` (see the README).

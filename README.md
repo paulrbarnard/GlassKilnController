@@ -78,7 +78,8 @@ app.yaml                    Arduino App Lab manifest (name/icon/ports/bricks)
 ## Status
 
 Working end to end on the kiln (an Uno Q named "Steffi"), confirmed
-October 2026:
+October–November 2026 (last checked 2 November 2026, on the new printed
+mount and the 8" display):
 
 - **Reading the controller**: the camera decodes the display, including
   the glyphs the GM LT uses for letters, the °C indicator (the last digit's
