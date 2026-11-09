@@ -14,7 +14,9 @@ tools; while the kiln is hot it reads more often.
 A display that stays dark for the whole read means the kiln is switched
 off (at rest it never goes blank: IdLE alternates with the temperature).
 The last temperature read is kept, since a kiln switched off while hot
-can't be read any more.
+can't be read any more. No picture at all is a different thing: that's a
+camera fault, reported as one (it was once shown as Off, 2026-11-09), and
+after CAMERA_STUCK_POLLS in a row ``on_camera_stuck`` is called.
 
 While a hot kiln cools with nothing running (after a firing), it estimates
 how long until it's below HOT_C: Newton's law of cooling, T = Ta + (T0 - Ta)
@@ -53,6 +55,7 @@ ROOM_MAX_AGE_S = 24 * 3600.0  # room temperature: the lowest cool reading this r
 COOLING_LOG_DIR = Path(__file__).resolve().parent.parent / "state" / "cooling"
 IDLE_HOT_S = 15.0  # how often to read while hot (or not known yet)
 IDLE_COOL_S = 60.0  # ...and once it has cooled
+CAMERA_STUCK_POLLS = 3  # failed reads in a row before calling it stuck
 IDLE_OFF_S = 30.0  # ...and while the kiln is switched off (the camera is then never
 #                    free for scripts/; use POST /api/snapshot to see what it sees)
 READ_WINDOW_S = 4.0  # long enough to catch the temperature between IdLEs
@@ -64,7 +67,7 @@ COOLING_MAX_S = 48 * 3600.0  # beyond this the estimate isn't worth showing
 
 
 def is_dark(raw_text: str) -> bool:
-    return raw_text.replace(".", "").strip() in ("", "?")
+    return raw_text.replace(".", "").strip() == ""
 
 
 def to_c(temp: float, celsius: bool) -> float:
@@ -116,6 +119,7 @@ class KilnTemp:
     hot: Optional[bool] = None
     at: Optional[float] = None  # epoch s of that reading
     off: bool = False  # the display is dark: the kiln is switched off
+    camera_fault: bool = False  # no picture: the display can't be seen at all
     # While a hot kiln cools with nothing running: estimated epoch s at
     # which it will be below HOT_C, and whether an estimate is being worked
     # out (cooling, but not enough readings yet).
@@ -135,6 +139,7 @@ class KilnTemperature:
         room_path: Optional[Path] = None,
         cooling_log_dir: Optional[Path] = None,
         on_safe: Optional[Callable[[dict], None]] = None,
+        on_camera_stuck: Optional[Callable[[], None]] = None,
     ):
         self._vision = vision
         self._publish = publish
@@ -150,6 +155,8 @@ class KilnTemperature:
         # Called with the reading when a hot kiln (not firing) first reads
         # below HOT_C: the "safe to open" push (kiln/notify.py).
         self._on_safe = on_safe
+        self._on_camera_stuck = on_camera_stuck
+        self._fault_polls = 0
         self._cooling_log: Optional[Path] = None  # the current cooling's CSV
         self._cooling: list[tuple[float, float]] = []  # (epoch s, °C) since nothing ran
         self._lock = threading.Lock()
@@ -175,7 +182,7 @@ class KilnTemperature:
             except Exception:  # noqa: BLE001 - keep going through a bad read
                 log.exception("kiln temperature: read failed")
             latest = self._latest
-            if latest.off:
+            if latest.off or latest.camera_fault:
                 wait = IDLE_OFF_S
             elif latest.hot is False:
                 wait = IDLE_COOL_S
@@ -192,10 +199,16 @@ class KilnTemperature:
             temp, dark = self._firing_temp(), False
         else:
             temp, dark = self._read()
+        if self._vision.camera_failed:
+            self._record_camera_fault()
+            return None
+        self._fault_polls = 0
         if temp is not None:
             self._record(temp, cooling=not busy)
         elif dark:
             self._record_off()
+        elif self._latest.camera_fault:
+            self._clear_camera_fault()  # the camera's back; nothing to read yet
         return temp
 
     def _read(self) -> tuple[Optional[float], bool]:
@@ -211,6 +224,8 @@ class KilnTemperature:
         temp, at_rest = None, False
         while deadline is None or time.monotonic() < deadline:
             state = self._vision.read()
+            if self._vision.camera_failed:
+                return None, False
             if deadline is None:
                 deadline = time.monotonic() + READ_WINDOW_S
             if state.temperature is not None:
@@ -224,9 +239,32 @@ class KilnTemperature:
 
     def _record_off(self) -> None:
         with self._lock:
-            if self._latest.off:
+            if self._latest.off and not self._latest.camera_fault:
                 return
             self._latest.off = True
+            self._latest.camera_fault = False
+        self._emit()
+
+    def _record_camera_fault(self) -> None:
+        with self._lock:
+            changed = not self._latest.camera_fault
+            self._latest.camera_fault = True
+            self._latest.off = False
+            self._latest.cooling = False
+            self._latest.cool_by = None
+            self._fault_polls += 1
+            stuck = self._fault_polls == CAMERA_STUCK_POLLS
+        if changed:
+            self._emit()
+        if stuck and self._on_camera_stuck:
+            try:
+                self._on_camera_stuck()
+            except Exception:  # noqa: BLE001 - keep going whatever recovery does
+                log.exception("kiln temperature: camera recovery failed")
+
+    def _clear_camera_fault(self) -> None:
+        with self._lock:
+            self._latest.camera_fault = False
         self._emit()
 
     def _record(self, temp: float, cooling: bool = True) -> None:

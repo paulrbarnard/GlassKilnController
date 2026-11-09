@@ -322,3 +322,26 @@ def test_home_after_minutes_setting(tmp_path):
     assert ui.call("POST", "/api/settings/home_after", body={"minutes": 0})["home_after_minutes"] == 0
     assert "error" in ui.call("POST", "/api/settings/home_after", body={"minutes": "soon"})
     assert AppSettings.load(tmp_path / "settings.json").home_after_minutes == 0  # saved
+
+
+
+def _camera_stuck_setup(tmp_path, monkeypatch, busy=False):
+    import web.api as api
+
+    made, sent, restarts = {}, [], []
+    real = api.KilnTemperature
+    monkeypatch.setattr(api, "KilnTemperature", lambda *a, **k: made.setdefault("reader", real(*a, **k)))
+    monkeypatch.setattr(api, "Notifier", lambda path: type("N", (), {"send": lambda self, t, m, priority=0, wait=False: sent.append(t)})())
+    monkeypatch.setattr(api.os, "execv", lambda *a: restarts.append(a))
+    sequencer = Sequencer(bridge=MockBridge(press_delay_s=0.0), vision=MockVision(script=["IdLE"]))
+    library = ProfileLibrary(library_dir=LIBRARY_DIR, user_dir=tmp_path).load()
+    api.register_routes(FakeUI(), sequencer, library, settings_path=tmp_path / "settings.json")
+    return made["reader"]._on_camera_stuck, sent, restarts
+
+
+def test_a_stuck_camera_restarts_the_app_once_then_asks_for_a_power_cycle(tmp_path, monkeypatch):
+    stuck, sent, restarts = _camera_stuck_setup(tmp_path, monkeypatch)
+    stuck()
+    assert len(restarts) == 1 and sent == []
+    stuck()  # still stuck straight after the restart: no restart loop
+    assert len(restarts) == 1 and sent == ["Kiln camera problem"]

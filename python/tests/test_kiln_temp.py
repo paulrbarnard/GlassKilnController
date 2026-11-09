@@ -223,3 +223,61 @@ def test_a_number_on_a_menu_screen_isnt_the_kiln_temperature():
     reader, published = make(["°C  .", "0718.", "°C  .", "0718."])
     assert reader.poll() is None and published == []
     assert reader.status()["off"] is False
+
+
+def failing_camera(reader, failed=True):
+    reader._vision.camera_failed = failed
+    reader._vision.script, reader._vision._index = ["?"], 0
+
+
+def test_no_picture_is_a_camera_problem_not_off():
+    # A camera failure reads as "?", once mistaken for a dark display.
+    reader, published = make(["IdLE", "  30."])
+    reader.poll()
+    failing_camera(reader)
+    reader.poll()
+    status = reader.status()
+    assert status["camera_fault"] is True and status["off"] is False
+    assert status["temp"] == 30.0  # the last reading is kept
+    assert published[-1]["camera_fault"] is True
+
+
+def test_an_unstable_reading_isnt_off_either():
+    reader, _ = make(["?"])  # the display changing between frames
+    assert reader.poll() is None
+    assert reader.status()["off"] is False and reader.status()["camera_fault"] is False
+
+
+def test_camera_recovers_and_stuck_is_reported_once():
+    stuck = []
+    reader, _ = make(["IdLE", "  30."])
+    reader._on_camera_stuck = lambda: stuck.append(1)
+    failing_camera(reader)
+    for _ in range(5):
+        reader.poll()
+    assert stuck == [1]  # once, at the third failure in a row
+    reader._vision.camera_failed = False
+    reader._vision.script, reader._vision._index = ["IdLE", "  29."], 0
+    reader.poll()
+    assert reader.status()["camera_fault"] is False and reader.status()["temp"] == 29.0
+
+
+def test_a_real_dark_display_is_still_off_after_a_camera_fault():
+    reader, _ = make(["IdLE", "  30."])
+    reader.poll()
+    failing_camera(reader)
+    reader.poll()
+    reader._vision.camera_failed = False
+    reader._vision.script, reader._vision._index = [""], 0
+    reader.poll()
+    assert reader.status()["off"] is True and reader.status()["camera_fault"] is False
+
+
+def test_camera_failure_during_a_firing_is_noticed():
+    stuck = []
+    reader, _ = make(["IdLE"], busy=True, firing_temp=550.0)
+    reader._on_camera_stuck = lambda: stuck.append(1)
+    reader._vision.camera_failed = True
+    for _ in range(3):
+        reader.poll()
+    assert stuck == [1] and reader.status()["camera_fault"] is True

@@ -51,6 +51,9 @@ function renderViewStatus() {
     text = `${PHASE_LABELS[st.phase] || st.phase}: ${st.profile_name || ''}`;
   } else if (viewBusy) {
     text = `Busy: ${viewBusy}`;
+  } else if (latestKilnTemp && latestKilnTemp.camera_fault) {
+    text = 'Camera problem';
+    active = false;
   } else if (latestKilnTemp && latestKilnTemp.off) {
     text = 'Kiln off';
     active = false;
@@ -437,6 +440,7 @@ function renderCoolingPopup(st, live) {
     coolingPopupClosedFor !== st.fired_at &&
     reading &&
     !reading.off &&
+    !reading.camera_fault &&
     reading.hot;
   popup.hidden = !show;
   if (!show) return;
@@ -472,7 +476,7 @@ function renderFiring() {
   // reader carries on, so show its (newer) temperature and the cooling time.
   const finished = !firingActive() && st.fired_at;
   const live = finished && latestKilnTemp && latestKilnTemp.at > (st.ended_at || 0) ? latestKilnTemp : null;
-  const shown = live && !live.off ? live : st;
+  const shown = live && !live.off && !live.camera_fault ? live : st;
   document.getElementById('run-temp').textContent =
     shown.temp !== null && shown.temp !== undefined ? `${Math.round(shown.temp)}°${shown.unit}` : '–';
 
@@ -492,7 +496,8 @@ function renderFiring() {
     // Estimate from the profile's own timeline; the real kiln may lag it.
     remaining.textContent = `~${formatHoursMinutes(Math.max(0, totalHours(segments) - elapsedHours))}`;
   } else if (finished && live) {
-    if (live.off) remaining.textContent = 'kiln off';
+    if (live.camera_fault) remaining.textContent = 'camera problem';
+    else if (live.off) remaining.textContent = 'kiln off';
     else if (!live.hot) remaining.textContent = 'safe to open';
     else if (live.cool_by && live.cool_by - Date.now() / 1000 < 60) remaining.textContent = 'any moment now';
     else if (live.cool_by) remaining.textContent = `~${formatHoursMinutes((live.cool_by - Date.now() / 1000) / 3600)} to ${live.unit === 'F' ? '104°F' : '40°C'}`;
@@ -818,7 +823,7 @@ let latestKilnTemp = null;
 // below 40 °C / 104 °F (estimated by python/kiln/kiln_temp.py and revised
 // with every reading). Null when there's nothing to say.
 function coolingText(d) {
-  if (!d || !d.hot || d.off || !d.cooling) return null;
+  if (!d || !d.hot || d.off || d.camera_fault || !d.cooling) return null;
   if (!d.cool_by) return 'Estimating cooling time…';
   const limit = d.unit === 'F' ? '104°F' : '40°C';
   const hours = (d.cool_by - Date.now() / 1000) / 3600;
@@ -838,6 +843,13 @@ function renderKilnTemp(d) {
   const note = document.getElementById('kiln-temp-note');
   const reading = d && d.temp !== null && d.temp !== undefined ? `${Math.round(d.temp)}°${d.unit}` : null;
   box.className = 'kiln-temp';
+  if (d && d.camera_fault) {
+    // No picture at all: nothing is known about the kiln's display.
+    box.classList.add('unknown');
+    value.textContent = 'Camera problem';
+    note.textContent = reading ? `Last read ${reading} at ${clockTime(d.at)}` : "Can't see the kiln display";
+    return;
+  }
   if (d && d.off) {
     box.classList.add('off');
     value.textContent = 'Off';

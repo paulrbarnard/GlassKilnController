@@ -308,6 +308,10 @@ def read_frame_text(frame, cal: DisplayCalibration) -> str:
 class KilnVision(abc.ABC):
     """Abstract camera interface used by ``sequencer.py``."""
 
+    # True when the last attempt to get a frame failed: no picture at all,
+    # which says nothing about the kiln's display.
+    camera_failed = False
+
     @abc.abstractmethod
     def read(self) -> ControllerState:
         """Capture a frame and return the current best reading."""
@@ -417,6 +421,7 @@ class RealVision(KilnVision):
             except Exception as exc:  # camera missing, busy, pipeline error
                 log.warning("RealVision: camera open failed: %s", exc)
                 ok, frame = False, None
+            self.camera_failed = not ok
             if not ok:
                 self._release_locked()
                 return None

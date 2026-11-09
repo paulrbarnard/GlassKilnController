@@ -22,7 +22,10 @@ server uses internally.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -42,6 +45,9 @@ from kiln.settings import DEFAULT_PATH as SETTINGS_PATH
 from kiln.settings import AppSettings
 
 log = logging.getLogger(__name__)
+
+CAMERA_RESTART_PATH = SETTINGS_PATH.parent / "camera_restart.json"
+CAMERA_RESTART_GAP_S = 30 * 60.0
 
 
 class UILike(Protocol):
@@ -181,6 +187,42 @@ def register_routes(
         at = time.strftime("%H:%M", time.localtime(reading.get("at") or time.time()))
         notifier.send("Kiln safe to open", f"{round(temp)}°{unit} at {at}")
 
+    def camera_stuck() -> None:
+        """The camera has stopped giving pictures (seen when its memory
+        allocation failed, 2026-11-09: libcamera then stays stuck until the
+        process ends). With nothing running, restart this process in place;
+        the container has no restart policy, so exiting would leave the app
+        down. Never during a firing (the monitor would be lost), and only
+        once per CAMERA_RESTART_GAP_S, so a dead camera can't cause a loop."""
+
+        if controller_busy():
+            notifier.send(
+                "Kiln camera problem",
+                "The app can't see the kiln display. The firing carries on, controlled by the kiln, "
+                "but check the kiln yourself and restart the controller when it's finished.",
+                priority=1,
+                wait=True,
+            )
+            return
+        try:
+            last = json.loads(CAMERA_RESTART_PATH.read_text())["at"]
+        except (OSError, ValueError, KeyError, TypeError):
+            last = 0.0
+        if time.time() - last < CAMERA_RESTART_GAP_S:
+            notifier.send(
+                "Kiln camera problem",
+                "The app can't see the kiln display, and restarting didn't help. "
+                "Power-cycle the controller.",
+                priority=1,
+                wait=True,
+            )
+            return
+        CAMERA_RESTART_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CAMERA_RESTART_PATH.write_text(json.dumps({"at": time.time()}))
+        log.warning("camera stuck: restarting the app to recover it")
+        logging.shutdown()
+        os.execv(sys.executable, [sys.executable, *sys.argv])
+
     kiln_temp = KilnTemperature(
         sequencer.vision,
         publish=lambda reading: ui.send_message("kiln_temp", reading),
@@ -190,6 +232,7 @@ def register_routes(
         room_path=ROOM_PATH,
         cooling_log_dir=COOLING_LOG_DIR,
         on_safe=push_safe,
+        on_camera_stuck=camera_stuck,
     )
 
     def run_in_background(task: Callable[[], None]) -> None:

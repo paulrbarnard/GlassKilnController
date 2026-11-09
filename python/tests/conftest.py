@@ -8,4 +8,5 @@ def _private_kiln_slot_map(tmp_path, monkeypatch):
     monkeypatch.setattr("web.api.SLOTS_PATH", tmp_path / "kiln_slots.json")
     monkeypatch.setattr("web.api.ROOM_PATH", tmp_path / "kiln_room.json")
     monkeypatch.setattr("web.api.COOLING_LOG_DIR", tmp_path / "cooling")
+    monkeypatch.setattr("web.api.CAMERA_RESTART_PATH", tmp_path / "camera_restart.json")
     monkeypatch.setattr("web.api.NOTIFY_PATH", tmp_path / "notify.json")  # no keys: nothing sent
