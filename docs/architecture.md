@@ -257,7 +257,7 @@ tested (`python/tests/`). `kiln/sequencer.py` is tested against
 `MockBridge` + `MockVision` fed a scripted state sequence, so the whole
 "what buttons do we press for profile X" logic — and now `web/api.py`'s
 route logic, via a fake `ui` double — can be verified without a kiln, a
-camera, or an Uno Q at all. 165 tests, all hardware-free; see
+camera, or an Uno Q at all. 171 tests, all hardware-free; see
 `python/tests/` for the pattern to extend. Behaviour that depends on the
 real controller (value entry timing, the display's glyphs) was tuned on the
 kiln, with the tools in `scripts/` (see the README).

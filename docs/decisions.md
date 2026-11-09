@@ -142,6 +142,22 @@ Dates are when the decision was made, October 2026.
   a notification. It uses its own "Kiln" application token; the keys are
   only on the board.
 
+## A board that only runs the kiln
+
+- **Steffi is dedicated to the kiln** (2026-11-09). It has 1.7 GB of RAM and
+  the camera needs contiguous memory for its frames; when that ran out the
+  camera failed. The App Lab desktop program (272 MB, not needed: deployment
+  uses `arduino-app-cli`) no longer starts at login, Bluetooth, the modem
+  manager, the Arduino cloud connector and audio are off, and unused AI
+  brick images are gone. Keep the Arduino router and app daemon, Docker,
+  the kiosk desktop, Wi-Fi, SSH and adb.
+- **A camera failure is never reported as Off.** Off means the camera saw a
+  dark display; no picture at all shows "Camera problem" with the last
+  reading. After three failed reads in a row the app restarts its own
+  process in place (the container has no restart policy), at most once in
+  30 minutes. During a firing it only sends a notification, since a restart
+  would lose the firing monitor.
+
 ## Working on it
 
 - **Don't deploy during a firing.** A restart loses the firing monitor and

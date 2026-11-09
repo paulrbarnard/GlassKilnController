@@ -109,7 +109,7 @@ mount and the 8" display):
   screen shows the temperature read from it whenever nothing else is
   running: red with "Warning: Kiln hot. Open with caution" at 40 °C /
   104 °F and above, green with "Safe to open" below, "Off" when the display
-  is dark. After a firing, a hot kiln's cooling is fitted to Newton's law to
+  is dark, "Camera problem" (with the last reading) if there's no picture. After a firing, a hot kiln's cooling is fitted to Newton's law to
   estimate when it will read below 40 °C (shown on the home screen and in a
   pop-up on the finished firing screen, revised with every reading;
   `python/kiln/kiln_temp.py`).
@@ -174,7 +174,7 @@ pip install -r requirements.txt
 python main.py --mock-bridge --mock-vision
 ```
 
-Real automated coverage of both layers lives in `python/tests/` (165 tests,
+Real automated coverage of both layers lives in `python/tests/` (171 tests,
 run with `pytest` from `python/`) — that's what to extend, not manual runs
 of `main.py`.
 
